@@ -1,0 +1,25 @@
+# LUMI systemd template — generic, user must set WorkingDirectory
+# Install: cp infra/systemd/lumi-observatory.service ~/.config/systemd/user/lumi-observatory.service
+# or: sudo cp infra/systemd/lumi-observatory.service /etc/systemd/system/lumi-observatory.service
+# Then: systemctl --user enable --now lumi-observatory  OR  sudo systemctl enable --now lumi-observatory
+[Unit]
+Description=LUMI Agentic Observatory stack
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/apps/lumi-observatory
+# Override with: systemctl edit lumi-observatory.service
+# and set WorkingDirectory=/path/to/lumi-observatory
+Environment="LUMI_BACKUP_DIR=%h/backups/lumi" "LUMI_POSTGRES_CONTAINER=lumi-postgres"
+ExecStartPre=/usr/bin/docker compose config --quiet
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose stop
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

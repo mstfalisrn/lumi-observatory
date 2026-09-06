@@ -1,0 +1,57 @@
+[project]
+name = "lumi-observatory"
+version = "1.0.0"
+description = "Observable, policy-gated agentic runtime"
+requires-python = ">=3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["packages", "apps", "tests", "migrations"]
+extend-exclude = ["apps/web"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "S", "UP", "TRY", "RUF"]
+ignore = [
+    "E501",    # line-too-long: handled by ruff format (the codebase includes comments/docs over 120 chars)
+    "E402",    # module-import-not-at-top: prevents circular imports (imports inside try blocks)
+    "B008",    # FastAPI Depends() default argument — framework requirement
+    "BLE001",  # blind-except: intentional for agent resilience (the error is logged)
+    "S110",    # try-except-pass: resilience
+    "S112",    # try-except-continue
+    "S101",    # assert: used for production validation and tests
+    "RUF001",  # non-ASCII string literals (API messages)
+    "RUF002",  # non-ASCII docstrings
+    "RUF003",  # non-ASCII comments
+    "S104",    # bind-all-interfaces: container-internal uvicorn only (host port closed)
+    "TRY002",  # raise-vanilla-class
+    "TRY003",  # raise-vanilla-args: HTTPException(detail="...") standart
+    "TRY300",  # try-consider-else
+    "TRY301",  # raise-within-try
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "B017", "PLR2004", "S108", "S105", "S311", "S106"]
+"migrations/*" = ["E501", "F401", "I001"]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["packages", "."]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["packages"]
+omit = ["*/migrations/*", "packages/connectors/agent_alert.py", "packages/connectors/agent_evaluator.py", "packages/observability/events.py"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", "migrations", "apps/web"]

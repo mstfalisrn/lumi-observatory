@@ -1,0 +1,34 @@
+# Secrets — never commit
+.env
+**/.env
+*secrets*
+app.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Node / Vite
+node_modules/
+dist/
+build/
+.next/
+*.tsbuildinfo
+
+# Test artifacts
+tests/.coverage
+tests/artifacts/
+
+# Operating system and local artifacts
+*.log
+.DS_Store
+docs/mcp-audit/
+docs/remediation/

@@ -1,0 +1,36 @@
+# LUMI Gateway — Caddy (Telegram secure webhook)
+# Only host bind 127.0.0.1:<port> (docker-compose), single origin for API+UI.
+
+:80 {
+  encode gzip
+
+  # API / SSE / webhook (Telegram opaque path + secret header)
+  @api {
+    path /api/* /health/* /webhooks/* /events*
+  }
+  handle @api {
+    reverse_proxy lumi-api:8000 {
+      flush_interval -1
+      # Forward Telegram webhook header, disable buffering
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-For {remote_host}
+    }
+  }
+
+  # UI (static distribution served from the API container)
+  handle {
+    reverse_proxy lumi-api:8000 {
+      flush_interval -1
+    }
+  }
+
+  header {
+    -Server
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+  }
+}

@@ -1,0 +1,242 @@
+# LUMI Agentic Observatory — Docker Compose (pinned, standalone)
+# Only lumi-gateway binds to the host on 127.0.0.1:${GATEWAY_PORT:-3525}.
+# PostgreSQL/Redis are not exposed to the host (internal network). Web UI is baked into the API image (single origin).
+name: lumi-observatory
+
+services:
+  # ------------------------------------------------------ PostgreSQL 16 + pgvector
+  lumi-postgres:
+    image: pgvector/pgvector:pg16@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
+    container_name: lumi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lumi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-lumi}
+    volumes:
+      - lumi_pgdata:/var/lib/postgresql/data
+      - ./infra/compose/initdb/01-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lumi}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    expose: ["5432"]
+    networks: [lumi_internal]
+
+  # ------------------------------------------------------ Redis 7
+  lumi-redis:
+    image: redis:7.2-alpine@sha256:ccd6aa8d45ff3f033d6fa15b8cc1a50579f65c89f38cf9bb607a954c4f2128ed
+    container_name: lumi-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - lumi_redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    expose: ["6379"]
+    networks: [lumi_internal]
+
+  # ------------------------------------------------------ One-shot migration (API does not run migrations)
+  lumi-migrate:
+    build:
+      context: .
+      dockerfile: apps/migrate/Dockerfile
+      args:
+        PYTHON_IMAGE: python:3.12-slim@sha256:7a8b475003c4fe15a2cd4e55e5cfc2f3560bdc9333d624f24cdd6d4340fd7a17
+    container_name: lumi-migrate
+    restart: "no"
+    user: "10001:10001"
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-lumi}:${POSTGRES_PASSWORD}@lumi-postgres:5432/${POSTGRES_DB:-lumi}
+    depends_on:
+      lumi-postgres: { condition: service_healthy }
+    networks: [lumi_internal]
+
+  # ------------------------------------------------------ API + SSE + webhook + (embedded static UI)
+  lumi-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      args:
+        PYTHON_IMAGE: python:3.12-slim@sha256:7a8b475003c4fe15a2cd4e55e5cfc2f3560bdc9333d624f24cdd6d4340fd7a17
+    container_name: lumi-api
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-lumi}:${POSTGRES_PASSWORD}@lumi-postgres:5432/${POSTGRES_DB:-lumi}
+      REDIS_URL: redis://lumi-redis:6379/0
+      JWT_SECRET: ${JWT_SECRET}
+      SESSION_ENCRYPTION_MASTER_KEY: ${SESSION_ENCRYPTION_MASTER_KEY}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
+      TELEGRAM_GROUP_ENABLED: ${TELEGRAM_GROUP_ENABLED:-false}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      RUN_MAX_ITERATIONS: ${RUN_MAX_ITERATIONS:-40}
+      RUN_MAX_WALL_SECONDS: ${RUN_MAX_WALL_SECONDS:-900}
+      RUN_MAX_TOKEN_BUDGET: ${RUN_MAX_TOKEN_BUDGET:-200000}
+      TECHNOCORE_ENABLED: ${TECHNOCORE_ENABLED:-false}
+      TECHNOCORE_BASE_URL: ${TECHNOCORE_BASE_URL:-}
+    depends_on:
+      lumi-migrate: { condition: service_completed_successfully }
+      lumi-postgres: { condition: service_healthy }
+      lumi-redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live',timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    networks: [lumi_internal]
+
+  # ------------------------------------------------------ Gateway (Caddy) — single host bind
+  lumi-gateway:
+    image: caddy:2.8@sha256:226d1f059b75399fe19182893c7184591c07b97afc8dfcf44eeb80c9a77a530f
+    container_name: lumi-gateway
+    restart: unless-stopped
+    user: "0:0"
+    security_opt: ["no-new-privileges:true"]
+    cap_add: ["NET_BIND_SERVICE"]
+    cap_drop: ["ALL"]
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-3525}:80"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      lumi-api: { condition: service_healthy }
+    networks: [lumi_internal]
+
+  # ------------------------------------------------------ Worker (agent run execution)
+  lumi-worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    container_name: lumi-worker
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      # Technocore DID key (host) → read-only into container; must be readable by UID 10001 on host (0640 root:10001)
+      - ${TECHNOCORE_KEY_HOST_PATH:-./secrets/did.ed25519}:/run/secrets/technocore/did.ed25519:ro
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-lumi}:${POSTGRES_PASSWORD}@lumi-postgres:5432/${POSTGRES_DB:-lumi}
+      REDIS_URL: redis://lumi-redis:6379/0
+      SESSION_ENCRYPTION_MASTER_KEY: ${SESSION_ENCRYPTION_MASTER_KEY}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      RUN_MAX_ITERATIONS: ${RUN_MAX_ITERATIONS:-40}
+      RUN_MAX_TOOL_CALLS: ${RUN_MAX_TOOL_CALLS:-80}
+      RUN_MAX_WALL_SECONDS: ${RUN_MAX_WALL_SECONDS:-900}
+      CONNECTOR_ALLOWED_HOSTS: ${CONNECTOR_ALLOWED_HOSTS:-}
+      TECHNOCORE_ENABLED: ${TECHNOCORE_ENABLED:-false}
+      TECHNOCORE_BASE_URL: ${TECHNOCORE_BASE_URL:-}
+      TECHNOCORE_ED25519_KEY_PATH: /run/secrets/technocore/did.ed25519
+    depends_on:
+      lumi-migrate: { condition: service_completed_successfully }
+      lumi-postgres: { condition: service_healthy }
+      lumi-redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/live',timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [lumi_internal]
+
+  # ------------------------------------------------------ Scheduler
+  lumi-scheduler:
+    build:
+      context: .
+      dockerfile: apps/scheduler/Dockerfile
+    container_name: lumi-scheduler
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-lumi}:${POSTGRES_PASSWORD}@lumi-postgres:5432/${POSTGRES_DB:-lumi}
+      REDIS_URL: redis://lumi-redis:6379/0
+      SESSION_ENCRYPTION_MASTER_KEY: ${SESSION_ENCRYPTION_MASTER_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_GROUP_ENABLED: ${TELEGRAM_GROUP_ENABLED:-false}
+      TECHNOCORE_ENABLED: ${TECHNOCORE_ENABLED:-false}
+      TECHNOCORE_BASE_URL: ${TECHNOCORE_BASE_URL:-}
+      TECHNOCORE_MONITORED_ROOMS: ${TECHNOCORE_MONITORED_ROOMS:-}
+    depends_on:
+      lumi-migrate: { condition: service_completed_successfully }
+      lumi-postgres: { condition: service_healthy }
+      lumi-redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health/live',timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [lumi_internal]
+
+volumes:
+  lumi_pgdata:
+    driver: local
+  lumi_redisdata:
+    driver: local
+
+networks:
+  lumi_internal:
+    driver: bridge
+    internal: false   # connectors need internet access; only host ports are closed

@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: lumi
+          POSTGRES_PASSWORD: lumi
+          POSTGRES_DB: lumi_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U lumi"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r packages/requirements-api.txt -r packages/requirements-worker.txt -r packages/requirements-dev.txt
+      - name: Alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://lumi:lumi@localhost:5432/lumi_test
+        run: alembic -c migrations/alembic.ini upgrade head
+      - name: Alembic downgrade previous then upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://lumi:lumi@localhost:5432/lumi_test
+        run: |
+          alembic -c migrations/alembic.ini current
+          alembic -c migrations/alembic.ini downgrade d4e5f6a7b8c9
+          alembic -c migrations/alembic.ini current
+          alembic -c migrations/alembic.ini upgrade head
+          alembic -c migrations/alembic.ini current
+      - name: Run tests with coverage (incl PG integration)
+        env:
+          APP_ENV: test
+          DATABASE_URL: postgresql+asyncpg://lumi:lumi@localhost:5432/lumi_test
+          REDIS_URL: redis://localhost:6379/0
+        run: |
+          pytest tests/ -q --cov=packages --cov-report=term-missing --cov-fail-under=70
+          pytest tests/integration/test_pg_global_seq.py -q
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/ruff-action@v4.1.0
+        with:
+          args: "check packages apps migrations tests"
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install deps (pinned)
+        run: pip install -r packages/requirements-dev.txt
+      - name: Run bandit (0 High)
+        run: bandit -r packages apps --severity-level high -q
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run secret scan
+        run: ./scripts/secret-scan.sh .
+  compose-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate compose
+        run: docker compose config --quiet
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install frontend deps
+        working-directory: apps/web
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        working-directory: apps/web
+        run: npx tsc --noEmit
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+      - name: Audit
+        working-directory: apps/web
+        run: npm audit --audit-level=high
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build api image
+        run: docker build -f apps/api/Dockerfile --build-arg PYTHON_IMAGE=python:3.12-slim -t lumi-api:test .
+      - name: Build worker image
+        run: docker build -f apps/worker/Dockerfile --build-arg PYTHON_IMAGE=python:3.12-slim -t lumi-worker:test .
+      - name: Build scheduler image
+        run: docker build -f apps/scheduler/Dockerfile --build-arg PYTHON_IMAGE=python:3.12-slim -t lumi-scheduler:test .
+      - name: Build migrate image
+        run: docker build -f apps/migrate/Dockerfile --build-arg PYTHON_IMAGE=python:3.12-slim -t lumi-migrate:test .
+      - name: Build web image
+        run: docker build -f apps/web/Dockerfile -t lumi-web:test .

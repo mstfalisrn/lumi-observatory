@@ -1,0 +1,44 @@
+# LUMI pinned Python dependencies — shared API, worker, and scheduler core
+# Versions are fixed; automatic upgrades and `latest` are not used.
+# No host venv is used; each service builds in its own image.
+
+# web/API framework
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-multipart==0.0.20
+
+# DB / ORM / migrasyon
+SQLAlchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+psycopg[binary]==3.2.3
+alembic==1.14.0
+
+# kuyruk / koordinasyon
+redis==5.2.1
+
+# HTTP / SSRF
+httpx==0.28.1
+
+# elektronik imza / DID
+cryptography==44.0.0
+PyNaCl==1.5.0
+base58==2.1.1
+
+# Telegram
+python-telegram-bot==21.9
+
+# efficiency / security
+python-dotenv==1.0.1
+orjson==3.10.12
+passlib==1.7.4
+
+# Vector search
+pgvector==0.4.0
+
+# pyjwt
+PyJWT==2.10.1
+
+# CLI and helpers
+python-dotenv==1.0.1
