@@ -1,0 +1,14 @@
+{
+  "id": "github-observation",
+  "title": "Public GitHub observation",
+  "description": "Collects public activity for one explicitly scoped repository.",
+  "version": 1,
+  "execution_mode": "task",
+  "allowed_tools": ["github_repo_read"],
+  "required_scope": ["github_repos"],
+  "actions": [
+    {"tool": "github_repo_read", "arguments": {"repo": "$scope.github_repos[0]"}, "reason": "Collect public repository activity for the operator-approved target."}
+  ],
+  "evidence_contract": ["Repository identity and latest public activity are recorded."],
+  "safety_notes": ["Read-only public API access.", "Repository target must be explicitly supplied in task scope."]
+}

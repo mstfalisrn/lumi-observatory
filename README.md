@@ -1,6 +1,6 @@
 # LUMI Agentic Observatory
 
-[![CI](https://github.com/your-owner/lumi-observatory/actions/workflows/ci.yml/badge.svg)](https://github.com/your-owner/lumi-observatory/actions/workflows/ci.yml)
+[![CI](https://github.com/mstfalisrn/lumi-observatory/actions/workflows/ci.yml/badge.svg)](https://github.com/mstfalisrn/lumi-observatory/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](./CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
@@ -31,6 +31,10 @@ LUMI is a self-hosted agentic runtime for observable, policy-controlled automati
 - **Queue / worker with hardening** -- Redis Streams-backed queue with atomic claim, heartbeat/lease, exponential backoff, retry budget, and a dead-letter queue for poisoned runs.
 - **Durable Telegram inbox** -- Webhook receiver with opaque path, `X-Telegram-Bot-Api-Secret-Token` verification, and idempotent `update_id` handling.
 - **Memory with pgvector** -- Candidate -> approved/active lifecycle with embedding retrieval (`pgvector`) at task start; superseded/expired archival keeps history intact.
+- **Bounded capabilities (skills)** -- Source-controlled JSON manifests (`skills/*.json`) declare which tools a capability may call and which scope fields are required. An operator picks a skill and an explicit target (approved HTTPS URL, `owner/repository`, or configured room) before a run; the planner rejects out-of-scope targets before execution, and unknown tools never reach the registry.
+- **Proactive sources** -- Opt-in monitored sources (`http_json`, `github_repo`, `internal_health`, `technocore_room`) with content-hash change detection, exponential backoff on errors, bounded metadata-only storage, and an append-only observation trail. Changed content may become a memory *candidate* -- never an auto-activated record.
+- **Report-only digests + opt-in risk alerts** -- Deterministic local digest reports aggregate stored changes and risk metadata without any external call. External digest delivery and RISKY/DANGEROUS Telegram alerts are each behind their own explicit flag, off by default.
+- **Trust Center UI** -- Tier distribution (SAFE / WATCH / RISKY / DANGEROUS), live monitoring and alert state, capability manifest browser, and evaluation history with remote message previews explicitly labeled *untrusted*.
 - **Live SSE stream** -- `GET /api/v1/events/stream` (`text/event-stream`) with `Last-Event-ID` / `global_seq` cursor, auto-reconnect, and DB-backed global ordering.
 - **Web UI** -- Runs, context inspector, approvals, settings, and onboarding wizard (Tailwind 4 + shadcn/ui, light/dark tokens, SSE pulse).
 - **Production-ready hygiene** -- Non-root, read-only containers, `cap_drop: ALL`, isolated networks, secret scanning, and CI gates.
@@ -94,7 +98,7 @@ Step-by-step in your terminal — you choose every value. Nothing is auto-filled
 
 ```bash
 # 1) Clone
-git clone https://github.com/your-owner/lumi-observatory.git && cd lumi-observatory
+git clone https://github.com/mstfalisrn/lumi-observatory.git && cd lumi-observatory
 
 # 2) Run the wizard — walks you through Admin -> LLM -> Telegram -> Security
 ./scripts/setup.sh
@@ -118,7 +122,7 @@ nano .env && docker compose up -d --build
 Auto-generates any remaining `CHANGE_ME` placeholders and starts the stack without prompts:
 
 ```bash
-git clone https://github.com/your-owner/lumi-observatory.git && cd lumi-observatory
+git clone https://github.com/mstfalisrn/lumi-observatory.git && cd lumi-observatory
 cp .env.example .env          # optional — quickstart.sh creates it if missing
 ./scripts/quickstart.sh       # legacy alias; same as: ./scripts/setup.sh --yes
 # Alternative: docker compose up -d --build
@@ -235,6 +239,97 @@ See [OPERATIONS.md](./OPERATIONS.md) for systemd, runbook, and incident notes.
 
 ---
 
+## Usage Scenarios
+
+### 1. Install and first run (everyone)
+
+```bash
+git clone https://github.com/mstfalisrn/lumi-observatory.git && cd lumi-observatory
+./scripts/setup.sh            # interactive wizard: Admin -> LLM -> Telegram -> Security
+open http://localhost:3525
+```
+
+`mock` needs no API key, so the full agent loop works offline in under a minute. Swap to any OpenAI-compatible provider later with `./scripts/setup.sh --reconfigure`.
+
+### 2. Run a bounded observation task
+
+Give the agent an explicit, pre-approved target instead of a free-form web crawl:
+
+```bash
+# HTTP/JSON source approved by CONNECTOR_ALLOWED_HOSTS
+curl -s -X POST http://localhost:3525/api/v1/tasks \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{
+    "title": "Check release feed",
+    "prompt": "Fetch the release feed and report new entries with a quality summary.",
+    "scope": {"kind": "skill", "skill_id": "approved-http-observation",
+              "allowed_urls": ["https://api.github.com/repos/mstfalisrn/lumi-observatory/releases"]}
+  }'
+```
+
+The planner fails closed on any URL outside `allowed_urls`; internal/loopback/metadata hosts are always rejected by the SSRF layer. Skills that only monitor scheduled streams (`risk-triage`, `system-health`) cannot be invoked as ad-hoc tasks.
+
+### 3. Monitor a source (opt-in)
+
+```bash
+# 1) Turn on the master switch (optional: name hosts you approve)
+SOURCE_MONITOR_ENABLED=true
+CONNECTOR_ALLOWED_HOSTS=status.github.com,api.example.com
+
+# 2) Register a source (operator role)
+curl -s -X POST http://localhost:3525/api/v1/sources \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"name": "GH status", "source_type": "http_json",
+       "config": {"url": "https://status.github.com/api/status.json", "ingest_mode": "metadata"},
+       "is_enabled": true}'
+
+# 3) Manual scan (immediate change check) or let the scheduler scan each tick
+curl -s -X POST http://localhost:3525/api/v1/sources/<id>/scan \
+  -H "Authorization: Bearer <token>"
+
+# 4) Inspect observation events (change_type: NEW / CHANGED / UNCHANGED / ERROR)
+curl -s http://localhost:3525/api/v1/sources/<id>/observations \
+  -H "Authorization: Bearer <token>"
+```
+
+Remote content is stored as bounded metadata only, never raw text; it cannot become active memory without an explicit approval.
+
+### 4. Digest workflow (report-only by default)
+
+```bash
+DIGEST_ENABLED=true
+
+curl -s -X POST http://localhost:3525/api/v1/digest-schedules \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"name": "daily", "interval_minutes": 1440, "minimum_tier": "WATCH",
+       "is_enabled": false}'                     # saved disabled on purpose
+
+curl -s -X POST http://localhost:3525/api/v1/digest-schedules/<id>/generate \
+  -H "Authorization: Bearer <token>"             # produces a local Report
+```
+
+Generated digests land in **Reports**. Nothing is emailed, posted, or streamed out; external delivery is a reserved, separately gated flag (`DIGEST_DELIVERY_ENABLED`).
+
+### 5. Risk triage with human-in-the-loop alerting
+
+When Technocore monitoring is configured (`TECHNOCORE_ENABLED=true` + monitored rooms) the evaluator classifies messages on five dimensions. Alerts are a separate decision:
+
+```bash
+RISK_ALERTS_ENABLED=true    # only now may RISKY/DANGEROUS findings reach Telegram
+```
+
+Triage everything in the **Trust Center** tab: tier distribution, live control state, per-message reason, and raw remote text (labeled *untrusted*).
+
+### 6. Verify an installation
+
+```bash
+./scripts/secret-scan.sh .          # 0 findings required
+docker compose config --quiet       # compose valid
+curl -s http://localhost:3525/health/ready
+```
+
+---
+
 ## Security Model
 
 - **Tool isolation** -- Only declared, schema-validated connectors; no arbitrary shell or Docker access.
@@ -255,10 +350,13 @@ Full details: [SECURITY.md](./SECURITY.md)
 |-- apps/
 |   |-- api/            # FastAPI app -- routes, SSE, webhooks, auth
 |   |-- worker/         # Agent run execution
-|   |-- scheduler/      # Periodic / deferred jobs
+|   |-- scheduler/      # Periodic source scans, memory promotion, digests
 |   |-- migrate/        # Alembic one-shot runner
 |   +-- web/            # React + Vite + Tailwind 4 frontend (built into API image)
 |-- packages/           # Shared Python packages (policy, memory, observability, connectors)
+|   |-- agent_core/skills.py      # source-controlled capability manifests
+|   +-- observability/            # source_monitor.py, digest_service.py (report-only)
+|-- skills/             # Capability manifests (JSON): system-health, risk-triage, observation skills
 |-- migrations/         # Alembic migrations
 |-- infra/
 |   |-- caddy/          # Gateway config

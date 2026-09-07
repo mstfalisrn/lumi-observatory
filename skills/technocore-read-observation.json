@@ -1,0 +1,14 @@
+{
+  "id": "technocore-read-observation",
+  "title": "Technocore read-only observation",
+  "description": "Reads one configured Technocore room without publishing or signing writes.",
+  "version": 1,
+  "execution_mode": "task",
+  "allowed_tools": ["technocore_read"],
+  "required_scope": ["allowed_rooms"],
+  "actions": [
+    {"tool": "technocore_read", "arguments": {"room": "$scope.allowed_rooms[0]", "since": 0}, "reason": "Read the explicitly scoped configured room."}
+  ],
+  "evidence_contract": ["Room events and cursor position are recorded."],
+  "safety_notes": ["Read-only.", "Requires the optional connector to be explicitly enabled and configured.", "No signed write capability is exposed by this skill."]
+}

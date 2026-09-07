@@ -549,3 +549,17 @@ class TechnocoreConnector:
         sig = self.sign(room, n, swept)
         enc_text = urllib.parse.quote(swept, safe="")
         return f"{self.base_url}/r/{room}/say-signed/{self.did_public}/{sig}/{n}/{enc_text}"
+
+    async def aclose(self) -> None:
+        """Close an internally-created HTTP client. Safe to call repeatedly."""
+        if not self._client.is_closed:
+            await self._client.aclose()
+
+    async def close(self) -> None:
+        await self.aclose()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.aclose()

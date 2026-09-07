@@ -166,79 +166,103 @@ class SchedulerLoop:
         return recovered
 
     async def auto_promote_memory(self) -> int:
-        """C3: periodic memory auto-promotion."""
+        """Periodic memory lifecycle maintenance: expire stale items, then promote bounded candidates."""
         try:
             async with async_session_factory() as s:
                 async with s.begin():
                     from memory.service import MemoryService
 
                     svc = MemoryService(s)
-                    n = await svc.auto_promote_candidates()
-                    return n
+                    expired = await svc.expire_sweep()
+                    promoted = await svc.auto_promote_candidates()
+                    return expired + promoted
         except Exception as e:
             import logging as _log2
 
-            _log2.getLogger("lumi.scheduler").warning("auto_promote failed %s", type(e).__name__)
+            _log2.getLogger("lumi.scheduler").warning("memory lifecycle failed %s", type(e).__name__)
             return 0
 
-    async def check_sources(self) -> int:
-        """Real source work: create observations for enabled sources, create task/run."""
-        await self.publish_outbox()
-        await self.recover_stuck_runs()
-        try:
-            await self.auto_promote_memory()
-        except Exception:
-            pass
+    async def observe_sources(self) -> int:
+        """Execute opt-in source scans directly; never enqueue an unscoped LLM task."""
+        if not settings.SOURCE_MONITOR_ENABLED:
+            return 0
+        from observability.source_monitor import SourceMonitor
+
+        now = datetime.now(UTC)
+        async with async_session_factory() as s:
+            res = await s.execute(
+                select(models.Source)
+                .where(models.Source.is_enabled.is_(True))
+                .order_by(models.Source.last_observed_at.asc().nullsfirst(), models.Source.name.asc())
+                .limit(max(1, min(settings.SOURCE_MONITOR_MAX_PER_TICK, 50)))
+            )
+            source_ids = [row.id for row in res.scalars().all()]
+
+        observed = 0
+        for source_id in source_ids:
+            async with async_session_factory() as s:
+                async with s.begin():
+                    row = await s.execute(select(models.Source).where(models.Source.id == source_id).with_for_update())
+                    source = row.scalar_one_or_none()
+                    if source is None or not source.is_enabled:
+                        continue
+                    backoff = source.backoff_until
+                    if backoff is not None:
+                        backoff = backoff if backoff.tzinfo is not None else backoff.replace(tzinfo=UTC)
+                        if backoff > now:
+                            continue
+                    outcome = await SourceMonitor().observe(s, source)
+                    s.add(
+                        models.AuditEvent(
+                            actor="system",
+                            action="source.observed",
+                            resource_type="source",
+                            resource_id=str(source.id),
+                            detail={
+                                "change_type": outcome.change_type,
+                                "changed": outcome.changed,
+                                "report_id": outcome.report_id,
+                                "error_code": outcome.error_code,
+                            },
+                        )
+                    )
+                    observed += 1
+        return observed
+
+    async def run_due_digests(self) -> int:
+        """Generate due local reports only. No external delivery is performed here."""
+        if not settings.DIGEST_ENABLED:
+            return 0
+        from observability.digest_service import DigestService
+
         async with async_session_factory() as s:
             async with s.begin():
-                res = await s.execute(select(models.Source).where(models.Source.is_enabled.is_(True)))
-                sources = list(res.scalars().all())
-                for src in sources:
-                    # handle naive vs aware for SQLite
-                    def _aware(dt):
-                        if dt is None:
-                            return None
-                        return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+                results = await DigestService().run_due(s, limit=settings.DIGEST_MAX_SCHEDULES_PER_TICK)
+                for result in results:
+                    s.add(
+                        models.AuditEvent(
+                            actor="system",
+                            action="digest.generated",
+                            resource_type="digest_schedule",
+                            resource_id=result.schedule_id,
+                            detail={
+                                "report_id": result.report_id,
+                                "created": result.created,
+                                "source_change_count": result.source_change_count,
+                                "risk_item_count": result.risk_item_count,
+                            },
+                        )
+                    )
+                return len(results)
 
-                    bu = _aware(src.backoff_until)
-                    if bu and bu > datetime.now(UTC):
-                        continue
-                    la = _aware(src.last_accessed_at)
-                    stale = not la or (datetime.now(UTC) - la) > timedelta(hours=1)
-                    if stale:
-                        idem = f"source:{src.id}:{datetime.now(UTC).strftime('%Y-%m-%d-%H')}"
-                        ex = await s.execute(select(models.Task).where(models.Task.idempotency_key == idem))
-                        if ex.scalar_one_or_none() is not None:
-                            src.last_accessed_at = datetime.now(UTC)
-                            continue
-                        task = models.Task(
-                            title=f"Source monitoring: {src.name}",
-                            prompt=f"Monitor source {src.name} ({src.source_type}): scan for changes, collect evidence, produce a report.",
-                            scope={"source_id": str(src.id), "source_type": src.source_type},
-                            budget={"max_iterations": 10},
-                            idempotency_key=idem,
-                        )
-                        s.add(task)
-                        await s.flush()
-                        run = models.Run(
-                            task_id=task.id,
-                            status=models.RunStatus.QUEUED.value,
-                            token_budget=settings.RUN_MAX_TOKEN_BUDGET,
-                            cost_budget=settings.RUN_MAX_COST_BUDGET,
-                        )
-                        s.add(run)
-                        await s.flush()
-                        ob = models.OutboxMessage(
-                            topic="lumi.run_queued",
-                            payload={"run_id": str(run.id), "task_id": str(task.id), "source_id": str(src.id)},
-                            idempotency_key=f"run:{run.id}",
-                            processed=False,
-                        )
-                        s.add(ob)
-                        await append_run_event_in_session(s, run.id, "QUEUED", {"source_id": str(src.id)})
-                        src.last_accessed_at = datetime.now(UTC)
-                # commit via context manager
-            return len(sources)
+    async def check_sources(self) -> int:
+        """Scheduler tick: reliability maintenance, opt-in observation, and opt-in local digests."""
+        await self.publish_outbox()
+        await self.recover_stuck_runs()
+        await self.auto_promote_memory()
+        observed = await self.observe_sources()
+        await self.run_due_digests()
+        return observed
 
     async def run(self) -> None:
         while True:

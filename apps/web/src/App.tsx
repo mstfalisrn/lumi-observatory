@@ -18,6 +18,7 @@ import {
   Bird,
   PanelLeft,
   Sparkles,
+  ShieldCheck,
 } from 'lucide-react'
 import { api, openSSE, getToken, setToken, setOnUnauthorized } from './api'
 import type { SSEState } from './api'
@@ -29,7 +30,7 @@ import {
   ContextPage,
   MemoryPage,
   SourcesPage,
-  
+  AgentsPage,
   TelegramPage,
   SettingsPage,
   AuditPage,
@@ -43,7 +44,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 
-type PageKey = 'dashboard' | 'runs' | 'run-detail' | 'approvals' | 'context' | 'memory' | 'sources' | 'telegram' | 'settings' | 'audit' | 'reports'
+type PageKey = 'dashboard' | 'runs' | 'run-detail' | 'approvals' | 'context' | 'memory' | 'sources' | 'agents' | 'telegram' | 'settings' | 'audit' | 'reports'
 type NavKey = Exclude<PageKey, 'run-detail'>
 
 const NAV: [NavKey, string, React.ElementType][] = [
@@ -53,6 +54,7 @@ const NAV: [NavKey, string, React.ElementType][] = [
   ['context', 'Context', Puzzle],
   ['memory', 'Memory', Brain],
   ['sources', 'Sources', Radio],
+  ['agents', 'Trust Center', ShieldCheck],
 
   ['telegram', 'Telegram', Send],
   ['settings', 'Settings', Settings],
@@ -446,6 +448,7 @@ export default function App() {
               {tab === 'context' && <ContextPage initialRunId={runId} />}
               {tab === 'memory' && <MemoryPage />}
               {tab === 'sources' && <SourcesPage />}
+              {tab === 'agents' && <AgentsPage />}
               {tab === 'telegram' && <TelegramPage />}
               {tab === 'settings' && <SettingsPage />}
               {tab === 'reports' && <ReportsPage />}

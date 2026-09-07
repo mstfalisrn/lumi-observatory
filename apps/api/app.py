@@ -7,19 +7,27 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from pydantic import BaseModel
-from sqlalchemy import select, text
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select, text
 
+from agent_core.skills import SkillRegistryError, load_skill_registry
 from memory.service import MemoryService
 from observability import __version__, models
 from observability.config import settings
 from observability.db import async_session_factory
+from observability.digest_service import DigestService, DigestValidationError, validate_digest_payload
 from observability.security import redact
+from observability.source_monitor import (
+    SourceMonitor,
+    SourceMonitorError,
+    safe_source_reference,
+    validate_source_config,
+)
 
 log = logging.getLogger("lumi.api")
 
@@ -219,6 +227,16 @@ async def auth_me(user: dict = Depends(get_current_user)):
 @app.post("/api/v1/tasks", status_code=201)
 async def create_task(t: TaskCreate, user: dict = Depends(require_role("operator"))):
     from sqlalchemy.exc import IntegrityError
+
+    # Validate selected source-controlled skills at submission time so an
+    # operator receives an actionable 422 rather than a generic worker failure.
+    skill_id = t.scope.get("skill_id") if isinstance(t.scope, dict) else None
+    if skill_id:
+        try:
+            load_skill_registry().build_task_plan(str(skill_id), t.scope)
+        except SkillRegistryError as exc:
+            raise HTTPException(status_code=422, detail={"error": str(exc)}) from exc
+
     outbox_key = f"task:{t.idempotency_key}" if t.idempotency_key else f"auto:{uuid.uuid4().hex}"
     async with async_session_factory() as s:
         # idempotency pre-check (optimistic)
@@ -440,6 +458,74 @@ class MemoryCreate(BaseModel):
     ttl_seconds: int | None = None
 
 
+class SourceCreate(BaseModel):
+    name: str
+    source_type: str
+    config: dict[str, object] = Field(default_factory=dict)
+    # Creating an external source never turns it on implicitly.
+    is_enabled: bool = False
+
+
+class SourceUpdate(BaseModel):
+    name: str | None = None
+    config: dict[str, object] | None = None
+    is_enabled: bool | None = None
+
+
+class DigestScheduleCreate(BaseModel):
+    name: str
+    interval_minutes: int = 1440
+    source_ids: list[str] = Field(default_factory=list)
+    minimum_tier: str = "WATCH"
+    is_enabled: bool = False
+
+
+class DigestScheduleUpdate(BaseModel):
+    name: str | None = None
+    interval_minutes: int | None = None
+    source_ids: list[str] | None = None
+    minimum_tier: str | None = None
+    is_enabled: bool | None = None
+
+
+def _source_payload(source: models.Source) -> dict:
+    return {
+        "id": str(source.id),
+        "name": source.name,
+        "source_type": source.source_type,
+        "reference": safe_source_reference(source.source_type, source.config),
+        "is_enabled": source.is_enabled,
+        "last_accessed_at": source.last_accessed_at.isoformat() if source.last_accessed_at else None,
+        "last_observed_at": source.last_observed_at.isoformat() if source.last_observed_at else None,
+        "last_content_hash": source.last_content_hash or None,
+        "error_series": source.error_series[-5:] if isinstance(source.error_series, list) else [],
+        "backoff_until": source.backoff_until.isoformat() if source.backoff_until else None,
+        "created_at": source.created_at.isoformat(),
+    }
+
+
+def _digest_payload(schedule: models.DigestSchedule) -> dict:
+    return {
+        "id": str(schedule.id),
+        "name": schedule.name,
+        "interval_minutes": schedule.interval_minutes,
+        "source_ids": [str(value) for value in schedule.source_ids],
+        "minimum_tier": schedule.minimum_tier,
+        "is_enabled": schedule.is_enabled,
+        "delivery_mode": "report_only",
+        "last_generated_at": schedule.last_generated_at.isoformat() if schedule.last_generated_at else None,
+        "created_at": schedule.created_at.isoformat(),
+    }
+
+
+def _audit_actor(user: dict) -> tuple[str, uuid.UUID | None]:
+    raw_id = user.get("user_id")
+    try:
+        return f"user:{raw_id}", uuid.UUID(str(raw_id))
+    except (TypeError, ValueError):
+        return "operator", None
+
+
 @app.get("/api/v1/memory")
 async def list_memory(status: str | None = None, q: str | None = None, limit: int = 50, user: dict = Depends(get_current_user)):
     async with async_session_factory() as s:
@@ -486,26 +572,346 @@ async def decide_memory(memory_id: str, d: dict, user: dict = Depends(require_ro
 
 
 # ---------------------------------------------------------------------------
-# Sources / Reports / Technocore
+# Sources / report-only digests / reports / Technocore
 # ---------------------------------------------------------------------------
 @app.get("/api/v1/sources")
 async def list_sources(user: dict = Depends(get_current_user)):
     _ = user
     async with async_session_factory() as s:
         res = await s.execute(select(models.Source).order_by(models.Source.name))
-        return [{"id": str(x.id), "name": x.name, "source_type": x.source_type,
-                 "is_enabled": x.is_enabled, "last_accessed_at": x.last_accessed_at.isoformat() if x.last_accessed_at else None,
-                 "error_series_len": len(x.error_series)} for x in res.scalars().all()]
+        return [_source_payload(source) for source in res.scalars().all()]
+
+
+@app.post("/api/v1/sources", status_code=201)
+async def create_source(payload: SourceCreate, user: dict = Depends(require_role("operator"))):
+    name = payload.name.strip()
+    if not 3 <= len(name) <= 120:
+        raise HTTPException(422, "invalid_source_name")
+    try:
+        source_type = payload.source_type.strip().lower()
+        config = validate_source_config(source_type, payload.config)
+    except SourceMonitorError as exc:
+        raise HTTPException(422, str(exc)) from None
+    actor, actor_id = _audit_actor(user)
+    async with async_session_factory() as s:
+        existing = await s.execute(select(models.Source).where(models.Source.name == name))
+        if existing.scalar_one_or_none() is not None:
+            raise HTTPException(409, "source_name_already_exists")
+        source = models.Source(name=name, source_type=source_type, config=config, is_enabled=payload.is_enabled)
+        s.add(source)
+        await s.flush()
+        s.add(
+            models.AuditEvent(
+                actor=actor,
+                actor_user_id=actor_id,
+                action="source.created",
+                resource_type="source",
+                resource_id=str(source.id),
+                detail={"source_type": source_type, "enabled": payload.is_enabled},
+            )
+        )
+        await s.commit()
+        return _source_payload(source)
+
+
+@app.put("/api/v1/sources/{source_id}")
+async def update_source(source_id: str, payload: SourceUpdate, user: dict = Depends(require_role("operator"))):
+    try:
+        parsed_id = uuid.UUID(source_id)
+    except ValueError:
+        raise HTTPException(400, "invalid_source_id") from None
+    actor, actor_id = _audit_actor(user)
+    async with async_session_factory() as s:
+        source = await s.get(models.Source, parsed_id)
+        if source is None:
+            raise HTTPException(404, "source_not_found")
+        if payload.name is not None:
+            name = payload.name.strip()
+            if not 3 <= len(name) <= 120:
+                raise HTTPException(422, "invalid_source_name")
+            source.name = name
+        if payload.config is not None:
+            try:
+                source.config = validate_source_config(source.source_type, payload.config)
+            except SourceMonitorError as exc:
+                raise HTTPException(422, str(exc)) from None
+        if payload.is_enabled is not None:
+            source.is_enabled = payload.is_enabled
+        s.add(
+            models.AuditEvent(
+                actor=actor,
+                actor_user_id=actor_id,
+                action="source.updated",
+                resource_type="source",
+                resource_id=str(source.id),
+                detail={"enabled": source.is_enabled},
+            )
+        )
+        await s.commit()
+        return _source_payload(source)
+
+
+@app.get("/api/v1/sources/{source_id}/observations")
+async def list_source_observations(source_id: str, limit: int = 50, user: dict = Depends(get_current_user)):
+    _ = user
+    try:
+        parsed_id = uuid.UUID(source_id)
+    except ValueError:
+        raise HTTPException(400, "invalid_source_id") from None
+    async with async_session_factory() as s:
+        source = await s.get(models.Source, parsed_id)
+        if source is None:
+            raise HTTPException(404, "source_not_found")
+        rows = await s.execute(
+            select(models.SourceObservation)
+            .where(models.SourceObservation.source_id == parsed_id)
+            .order_by(models.SourceObservation.observed_at.desc(), models.SourceObservation.seq.desc())
+            .limit(max(1, min(limit, 100)))
+        )
+        return [
+            {
+                "id": str(row.id),
+                "observed_at": row.observed_at.isoformat(),
+                "seq": row.seq,
+                "change_type": row.change_type,
+                "content_hash": row.hash,
+                "change": row.change,
+            }
+            for row in rows.scalars().all()
+        ]
+
+
+@app.post("/api/v1/sources/{source_id}/scan")
+async def scan_source(source_id: str, user: dict = Depends(require_role("operator"))):
+    if not settings.SOURCE_MONITOR_ENABLED:
+        raise HTTPException(409, "source_monitor_disabled")
+    try:
+        parsed_id = uuid.UUID(source_id)
+    except ValueError:
+        raise HTTPException(400, "invalid_source_id") from None
+    actor, actor_id = _audit_actor(user)
+    async with async_session_factory() as s:
+        source = await s.get(models.Source, parsed_id)
+        if source is None:
+            raise HTTPException(404, "source_not_found")
+        if not source.is_enabled:
+            raise HTTPException(409, "source_disabled")
+        outcome = await SourceMonitor().observe(s, source)
+        s.add(
+            models.AuditEvent(
+                actor=actor,
+                actor_user_id=actor_id,
+                action="source.manual_scan",
+                resource_type="source",
+                resource_id=source_id,
+                detail={"change_type": outcome.change_type, "changed": outcome.changed, "error_code": outcome.error_code},
+            )
+        )
+        await s.commit()
+        return outcome.public_dict()
+
+
+@app.get("/api/v1/sources/status")
+async def source_monitor_status(user: dict = Depends(get_current_user)):
+    _ = user
+    return {
+        "monitor_enabled": settings.SOURCE_MONITOR_ENABLED,
+        "memory_candidates_enabled": settings.SOURCE_MEMORY_CANDIDATES_ENABLED,
+        "max_per_tick": settings.SOURCE_MONITOR_MAX_PER_TICK,
+        "allowed_http_hosts_configured": len([x for x in settings.CONNECTOR_ALLOWED_HOSTS.split(",") if x.strip()]),
+    }
+
+
+@app.get("/api/v1/digest-schedules")
+async def list_digest_schedules(user: dict = Depends(get_current_user)):
+    _ = user
+    async with async_session_factory() as s:
+        rows = await s.execute(select(models.DigestSchedule).order_by(models.DigestSchedule.name))
+        return [_digest_payload(schedule) for schedule in rows.scalars().all()]
+
+
+@app.post("/api/v1/digest-schedules", status_code=201)
+async def create_digest_schedule(payload: DigestScheduleCreate, user: dict = Depends(require_role("operator"))):
+    try:
+        data = validate_digest_payload(payload.model_dump())
+    except DigestValidationError as exc:
+        raise HTTPException(422, str(exc)) from None
+    actor, actor_id = _audit_actor(user)
+    async with async_session_factory() as s:
+        existing = await s.execute(select(models.DigestSchedule).where(models.DigestSchedule.name == data["name"]))
+        if existing.scalar_one_or_none() is not None:
+            raise HTTPException(409, "digest_name_already_exists")
+        schedule = models.DigestSchedule(**data)
+        s.add(schedule)
+        await s.flush()
+        s.add(
+            models.AuditEvent(
+                actor=actor,
+                actor_user_id=actor_id,
+                action="digest_schedule.created",
+                resource_type="digest_schedule",
+                resource_id=str(schedule.id),
+                detail={"enabled": schedule.is_enabled, "delivery_mode": "report_only"},
+            )
+        )
+        await s.commit()
+        return _digest_payload(schedule)
+
+
+@app.put("/api/v1/digest-schedules/{schedule_id}")
+async def update_digest_schedule(schedule_id: str, payload: DigestScheduleUpdate, user: dict = Depends(require_role("operator"))):
+    try:
+        parsed_id = uuid.UUID(schedule_id)
+    except ValueError:
+        raise HTTPException(400, "invalid_digest_schedule_id") from None
+    actor, actor_id = _audit_actor(user)
+    async with async_session_factory() as s:
+        schedule = await s.get(models.DigestSchedule, parsed_id)
+        if schedule is None:
+            raise HTTPException(404, "digest_schedule_not_found")
+        raw = {
+            "name": schedule.name,
+            "interval_minutes": schedule.interval_minutes,
+            "source_ids": [str(value) for value in schedule.source_ids],
+            "minimum_tier": schedule.minimum_tier,
+            "is_enabled": schedule.is_enabled,
+        }
+        raw.update(payload.model_dump(exclude_none=True))
+        try:
+            data = validate_digest_payload(raw)
+        except DigestValidationError as exc:
+            raise HTTPException(422, str(exc)) from None
+        for key, value in data.items():
+            setattr(schedule, key, value)
+        s.add(
+            models.AuditEvent(
+                actor=actor,
+                actor_user_id=actor_id,
+                action="digest_schedule.updated",
+                resource_type="digest_schedule",
+                resource_id=schedule_id,
+                detail={"enabled": schedule.is_enabled, "delivery_mode": "report_only"},
+            )
+        )
+        await s.commit()
+        return _digest_payload(schedule)
+
+
+@app.get("/api/v1/digests/preview")
+async def preview_digest(hours: int = 24, minimum_tier: str = "WATCH", user: dict = Depends(get_current_user)):
+    _ = user
+    if not 1 <= hours <= 168:
+        raise HTTPException(422, "invalid_preview_hours")
+    tier = minimum_tier.upper()
+    if tier not in {"SAFE", "WATCH", "RISKY", "DANGEROUS"}:
+        raise HTTPException(422, "invalid_digest_minimum_tier")
+    async with async_session_factory() as s:
+        return await DigestService().preview(s, since=datetime.now(UTC) - timedelta(hours=hours), minimum_tier=tier)
+
+
+@app.post("/api/v1/digest-schedules/{schedule_id}/generate")
+async def generate_digest(schedule_id: str, user: dict = Depends(require_role("operator"))):
+    if not settings.DIGEST_ENABLED:
+        raise HTTPException(409, "digest_workflow_disabled")
+    try:
+        parsed_id = uuid.UUID(schedule_id)
+    except ValueError:
+        raise HTTPException(400, "invalid_digest_schedule_id") from None
+    actor, actor_id = _audit_actor(user)
+    async with async_session_factory() as s:
+        schedule = await s.get(models.DigestSchedule, parsed_id)
+        if schedule is None:
+            raise HTTPException(404, "digest_schedule_not_found")
+        result = await DigestService().generate(s, schedule, force=True)
+        s.add(
+            models.AuditEvent(
+                actor=actor,
+                actor_user_id=actor_id,
+                action="digest.generated_manual",
+                resource_type="digest_schedule",
+                resource_id=schedule_id,
+                detail={"report_id": result.report_id, "delivery_mode": "report_only"},
+            )
+        )
+        await s.commit()
+        return result.public_dict()
 
 
 @app.get("/api/v1/reports")
 async def list_reports(limit: int = 20, user: dict = Depends(get_current_user)):
     _ = user
     async with async_session_factory() as s:
-        res = await s.execute(select(models.Report).order_by(models.Report.created_at.desc()).limit(limit))
-        return [{"id": str(r.id), "report_type": r.report_type, "subject": r.subject,
-                 "confidence": r.confidence, "created_at": r.created_at.isoformat(),
-                 "summary": r.summary} for r in res.scalars().all()]
+        res = await s.execute(select(models.Report).order_by(models.Report.created_at.desc()).limit(max(1, min(limit, 100))))
+        return [
+            {
+                "id": str(report.id),
+                "report_type": report.report_type,
+                "subject": report.subject,
+                "confidence": report.confidence,
+                "created_at": report.created_at.isoformat(),
+                "summary": report.summary,
+            }
+            for report in res.scalars().all()
+        ]
+
+
+@app.get("/api/v1/reports/{report_id}")
+async def get_report(report_id: str, user: dict = Depends(get_current_user)):
+    _ = user
+    try:
+        parsed_id = uuid.UUID(report_id)
+    except ValueError:
+        raise HTTPException(400, "invalid_report_id") from None
+    async with async_session_factory() as s:
+        report = await s.get(models.Report, parsed_id)
+        if report is None:
+            raise HTTPException(404, "report_not_found")
+        return {
+            "id": str(report.id),
+            "report_type": report.report_type,
+            "subject": report.subject,
+            "summary": report.summary,
+            "confidence": report.confidence,
+            "created_at": report.created_at.isoformat(),
+            "body": report.body,
+        }
+
+
+@app.get("/api/v1/skills")
+async def list_agent_skills(user: dict = Depends(get_current_user)):
+    _ = user
+    try:
+        return {"skills": load_skill_registry().summaries()}
+    except SkillRegistryError:
+        # Do not expose an internal filesystem error to API users.
+        raise HTTPException(503, "skill_registry_unavailable") from None
+
+
+@app.get("/api/v1/trust/summary")
+async def trust_summary(user: dict = Depends(get_current_user)):
+    _ = user
+    async with async_session_factory() as s:
+        grouped = await s.execute(select(models.AgentEvaluation.tier, func.count()).group_by(models.AgentEvaluation.tier))
+        tiers = {"SAFE": 0, "WATCH": 0, "RISKY": 0, "DANGEROUS": 0}
+        tiers.update({str(tier).upper(): int(count) for tier, count in grouped.all()})
+        recent = await s.execute(select(models.AgentEvaluation).order_by(models.AgentEvaluation.evaluated_at.desc()).limit(10))
+        return {
+            "tiers": tiers,
+            "monitoring_enabled": settings.TECHNOCORE_ENABLED,
+            "risk_alerts_enabled": settings.RISK_ALERTS_ENABLED,
+            "recent": [
+                {
+                    "room": item.room,
+                    "seq": item.seq,
+                    "nick": redact(item.nick)[:120],
+                    "tier": item.tier,
+                    "score": item.score,
+                    "reason": redact(item.reason)[:240],
+                    "evaluated_at": item.evaluated_at.isoformat(),
+                }
+                for item in recent.scalars().all()
+            ],
+        }
 
 
 @app.get("/api/v1/technocore")
@@ -538,6 +944,16 @@ async def test_llm_settings(req: LLMTestRequest, user: dict = Depends(get_curren
         url = (req.base_url or "").strip()
         if url and not (url.startswith("http://") or url.startswith("https://")):
             raise HTTPException(400, "base_url must start with http(s)")
+        # Production fail-closed: LLM test requests are server-side fetches, so
+        # they must pass the same SSRF checks as read connectors. In development
+        # self-hosted endpoints (host.docker.internal, LAN) remain reachable.
+        if url and settings.is_production:
+            try:
+                from connectors import ssrf
+
+                ssrf.validate_url(url)
+            except ssrf.SSRFError as exc:
+                raise HTTPException(400, f"base_url blocked: {exc}") from None
         # ollama can have empty api_key
         is_ollama = "11434" in url or prov == "ollama"
         if not is_ollama and req.api_key and len(req.api_key.strip()) < 8:
@@ -589,6 +1005,10 @@ async def settings_non_secret(user: dict = Depends(get_current_user)):
         "technocore_base_url": settings.TECHNOCORE_BASE_URL,
         "run_max_iterations": settings.RUN_MAX_ITERATIONS,
         "run_max_wall_seconds": settings.RUN_MAX_WALL_SECONDS,
+        "source_monitor_enabled": settings.SOURCE_MONITOR_ENABLED,
+        "digest_enabled": settings.DIGEST_ENABLED,
+        "digest_delivery_enabled": settings.DIGEST_DELIVERY_ENABLED,
+        "risk_alerts_enabled": settings.RISK_ALERTS_ENABLED,
         # secret VALUES are never returned; only configured/valid status:
         "telegram_token_configured": bool(settings.TELEGRAM_BOT_TOKEN),
         "llm_key_configured": bool(settings.LLM_API_KEY),
@@ -793,7 +1213,7 @@ async def agent_evaluations_stats(user: dict = Depends(get_current_user)):
         rows = (await s.execute(select(models.AgentEvaluation.tier, func.count()).group_by(models.AgentEvaluation.tier))).all()
         by_tier = {str(r[0]): int(r[1]) for r in rows}
         # normalize expected tiers
-        for k in ("SAFE", "RISKY", "DANGEROUS", "UNKNOWN"):
+        for k in ("SAFE", "WATCH", "RISKY", "DANGEROUS", "UNKNOWN"):
             by_tier.setdefault(k, 0)
         # include any extra tier keys already counted
         return {"total": int(total), "by_tier": by_tier}

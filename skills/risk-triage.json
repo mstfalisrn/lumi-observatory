@@ -1,0 +1,12 @@
+{
+  "id": "risk-triage",
+  "title": "Risk intelligence triage",
+  "description": "Scheduled five-dimension risk evaluation, alerting, and digest preparation for configured observation streams.",
+  "version": 1,
+  "execution_mode": "scheduled",
+  "allowed_tools": [],
+  "required_scope": [],
+  "actions": [],
+  "evidence_contract": ["Tier, score, rationale, and five evaluation dimensions are recorded."],
+  "safety_notes": ["Runs only through the configured scheduler.", "Connector and outbound notification delivery are opt-in.", "No public write is implied by an evaluation."]
+}

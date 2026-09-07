@@ -194,7 +194,7 @@ class WorkerLoop:
                                 run_id=rid, tool_name=payload.get("tool", ""),
                                 input_summary=args_j[:500],
                                 input_redacted=_redact(args_j)[:500],
-                                result_summary=json.dumps(payload.get("result", ""), default=str)[:500],
+                                result_summary=_redact(json.dumps(payload.get("result", ""), default=str))[:500],
                                 action_class="READ_ONLY", policy_decision="ALLOW",
                             ))
                         elif etype == "AWAITING_APPROVAL":
@@ -285,7 +285,7 @@ class WorkerLoop:
             run2.cost_used = coordinator.cost_used
             run2.finished_at = _dt.datetime.now(_dt.UTC) if status in (models.RunStatus.COMPLETED.value, models.RunStatus.FAILED.value, models.RunStatus.CANCELLED.value) else run2.finished_at
             if status == models.RunStatus.FAILED.value:
-                run2.error = run2.error or "worker_execution_error"
+                run2.error = run2.error or coordinator.failure_code or "worker_execution_error"
             run2.heartbeat_at = _dt.datetime.now(_dt.UTC)
             try:
                 await s.commit()
@@ -418,7 +418,7 @@ class WorkerLoop:
                         run_id=run_id, tool_name=tool,
                         input_summary=json.dumps(args, default=str)[:500],
                         input_redacted=_redact(json.dumps(args, default=str))[:500],
-                        result_summary=json.dumps(result, default=str)[:500],
+                        result_summary=_redact(json.dumps(result, default=str))[:500],
                         action_class="PUBLIC_WRITE", policy_decision="APPROVED",
                     ))
                     # ActionExecution SUCCEEDED

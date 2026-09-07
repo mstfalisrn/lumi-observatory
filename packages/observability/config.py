@@ -75,6 +75,22 @@ class Settings(BaseSettings):
     # Memory auto-promote
     MEMORY_AUTO_PROMOTE_THRESHOLD: float = 0.85
 
+    # Proactive observation — deliberately opt-in. Enabling a source alone is
+    # insufficient while SOURCE_MONITOR_ENABLED is false.
+    SOURCE_MONITOR_ENABLED: bool = False
+    SOURCE_MONITOR_MAX_PER_TICK: int = 10
+    SOURCE_MEMORY_CANDIDATES_ENABLED: bool = True
+    SOURCE_MEMORY_TTL_SECONDS: int = 7 * 24 * 3600
+
+    # Deterministic report-only digests. Delivery stays disabled until a
+    # separate, approval-gated connector is explicitly configured.
+    DIGEST_ENABLED: bool = False
+    DIGEST_MAX_SCHEDULES_PER_TICK: int = 10
+    DIGEST_DELIVERY_ENABLED: bool = False
+
+    # Risk notifications are an external Telegram write and therefore opt-in.
+    RISK_ALERTS_ENABLED: bool = False
+
     # Technocore — optional integration, disabled by default
     TECHNOCORE_ENABLED: bool = False
     TECHNOCORE_BASE_URL: str = ""

@@ -8,7 +8,7 @@ All runtime configuration is via environment variables in `.env` (see `.env.exam
 
 ```bash
 # 1) Clone
-git clone https://github.com/your-owner/lumi-observatory.git && cd lumi-observatory
+git clone https://github.com/mstfalisrn/lumi-observatory.git && cd lumi-observatory
 
 # 2) Environment — copy the template (all values are CHANGE_ME placeholders)
 cp .env.example .env
@@ -217,6 +217,29 @@ LLM_MODEL=your-model
 - Webhook path is opaque: `/webhooks/telegram/<opaque>` — never log the token or path.
 - Updates are deduplicated by `update_id` (idempotent inbox).
 - To disable Telegram, leave `TELEGRAM_BOT_TOKEN` empty.
+
+## Sources, Digests & Risk Alerts
+
+All monitoring features are **off by default**. A source can be registered while the monitor is off, but scans only happen when the master switch is on.
+
+| Variable | Default | Description |
+|---|---|---|
+| `SOURCE_MONITOR_ENABLED` | `false` | Master switch for scheduled and manual source scans |
+| `SOURCE_MONITOR_MAX_PER_TICK` | `10` | Sources scanned per scheduler tick (rate cap) |
+| `SOURCE_MEMORY_CANDIDATES_ENABLED` | `true` | Changed sources may create memory candidates (never auto-active) |
+| `SOURCE_MEMORY_TTL_SECONDS` | `604800` | Candidate TTL for observed content (7 days) |
+| `DIGEST_ENABLED` | `false` | Enables digest schedule generation into `Report` rows |
+| `DIGEST_MAX_SCHEDULES_PER_TICK` | `10` | Digest schedules evaluated per tick |
+| `DIGEST_DELIVERY_ENABLED` | `false` | Reserved — external digest delivery stays off |
+| `RISK_ALERTS_ENABLED` | `false` | Allows RISKY/DANGEROUS findings to alert Telegram (an external write) |
+| `CONNECTOR_ALLOWED_HOSTS` | empty | Comma-separated approved hosts for `http_json` sources; empty = deny-list only (loopback/RFC1918/metadata always blocked) |
+
+Notes:
+
+- Source types: `http_json` (approved HTTPS/HTTP host), `github_repo` (`owner/repository`), `internal_health` (no target), `technocore_room` (configured room name).
+- Source scans store **bounded metadata** (change type, content hash, sanitized summary) — never raw remote text.
+- `DIGEST_DELIVERY_ENABLED` exists as a separate gate so a misconfigured digest can never send anything externally on its own.
+- In `production`, `POST /api/v1/settings/llm/test` applies SSRF validation to the tested `LLM_BASE_URL` (loopback/RFC1918/metadata hosts are rejected); self-hosted endpoints can be tested in `development`.
 
 ## Other Environment Variables
 

@@ -347,13 +347,33 @@ class MemoryRelation(_UUIDMixin, _TimestampMixin, Base):
 # ----------------------------------------------------------------------------
 class Source(_UUIDMixin, _TimestampMixin, Base):
     __tablename__ = "sources"
+    __table_args__ = (Index("ix_sources_enabled_last_observed", "is_enabled", "last_observed_at"),)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     source_type: Mapped[str] = mapped_column(String(40), nullable=False)
     config: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    last_accessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_accessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_content_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     error_series: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
-    backoff_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    backoff_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DigestSchedule(_UUIDMixin, _TimestampMixin, Base):
+    """A report-only digest schedule. It never sends an external message itself."""
+
+    __tablename__ = "digest_schedules"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_digest_schedule_name"),
+        Index("ix_digest_schedules_enabled_last_generated", "is_enabled", "last_generated_at"),
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=1440)
+    source_ids: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    minimum_tier: Mapped[str] = mapped_column(String(16), nullable=False, default="WATCH")
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    delivery_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="report_only")
+    last_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SourceObservation(_UUIDMixin, _TimestampMixin, Base):

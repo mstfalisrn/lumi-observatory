@@ -1,0 +1,14 @@
+{
+  "id": "approved-http-observation",
+  "title": "Approved HTTP observation",
+  "description": "Reads one explicitly scoped HTTP or JSON target through SSRF protections.",
+  "version": 1,
+  "execution_mode": "task",
+  "allowed_tools": ["http_json_read"],
+  "required_scope": ["allowed_urls"],
+  "actions": [
+    {"tool": "http_json_read", "arguments": {"url": "$scope.allowed_urls[0]"}, "reason": "Collect evidence from the operator-approved URL."}
+  ],
+  "evidence_contract": ["A bounded, content-type-validated source response is recorded."],
+  "safety_notes": ["Read-only.", "The runtime validates DNS, IP class, redirects, response size, and allowed hosts.", "A URL is never inferred from prompt text."]
+}

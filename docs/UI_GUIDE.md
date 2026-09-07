@@ -5,7 +5,7 @@ The Web UI is a single-origin React SPA served from `lumi-api` (same origin as `
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-owner/lumi-observatory.git && cd lumi-observatory
+git clone https://github.com/mstfalisrn/lumi-observatory.git && cd lumi-observatory
 cp .env.example .env
 ./scripts/quickstart.sh
 # -> http://localhost:3525
@@ -41,11 +41,11 @@ Save it immediately. Verify the stack: `curl -s http://localhost:3525/health/rea
 | 3 | **Approvals** | `approvals` | `PENDING` queue — approve or reject with expiry and HMAC token |
 | 4 | **Context** | `context` | Context Inspector — 7 layers, token budget, segment breakdown |
 | 5 | **Memory** | `memory` | Candidate -> approved/active -> superseded/expired lifecycle, auto-promotion |
-| 6 | **Sources** | `sources` | Source registry — enable/disable, last access and error history |
-| 7 | **Technocore** | `technocore` | Room `<your-room>` (configurable via TECHNOCORE_MONITORED_ROOMS), read cursors, signed write gating |
+| 6 | **Sources** | `sources` | Source registry — create controlled sources, enable/disable, manual scan, observation events, digest schedules |
+| 7 | **Trust Center** | `agents` | Tier distribution (SAFE/WATCH/RISKY/DANGEROUS), live monitoring + alert state, bounded capability manifests, evaluation history (remote text labeled *untrusted*) |
 | 8 | **Telegram** | `telegram` | Bot status, webhook health, allowed user IDs |
 | 9 | **Settings** | `settings` | Non-secret settings, LLM connectivity test (`POST /v1/settings/llm/test`) |
-| 10 | **Reports** | `reports` | Evidence bundle and auditor packet generation |
+| 10 | **Reports** | `reports` | Evidence bundles, auditor packets, generated digest reports |
 | 11 | **Audit** | `audit` | Append-only run events with `global_seq`, verifier log |
 
 Detail view: **Run Detail** (`run-detail`) — reachable from Dashboard or Runs — shows the execution stepper, event stream, and controls (pause / resume / stop / retry).

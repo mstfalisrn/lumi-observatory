@@ -216,15 +216,16 @@ class AgentScorer:
                         max_seq = seq
                     continue
 
-                # Trigger Telegram risk alert (error-free import)
-                try:
-                    from connectors.agent_alert import send_risk_alert  # type: ignore
+                # Telegram is an external write: alerts are opt-in even when monitoring is enabled.
+                if settings.RISK_ALERTS_ENABLED:
+                    try:
+                        from connectors.agent_alert import send_risk_alert  # type: ignore
 
-                    # ev ORM object is not committed but alert works with dict/ORM
-                    await send_risk_alert(ev)
-                except Exception:
-                    # silent if import is missing or alert is skipped
-                    pass
+                        # ev ORM object is not committed but alert works with dict/ORM
+                        await send_risk_alert(ev)
+                    except Exception:
+                        # Alert delivery must never block durable evaluation persistence.
+                        pass
 
                 if seq > max_seq:
                     max_seq = seq

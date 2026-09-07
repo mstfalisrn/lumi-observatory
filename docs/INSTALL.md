@@ -30,7 +30,7 @@ Step-by-step in your terminal — you choose every value. Nothing is auto-filled
 
 ```bash
 # 1) Clone
-git clone https://github.com/your-owner/lumi-observatory.git && cd lumi-observatory
+git clone https://github.com/mstfalisrn/lumi-observatory.git && cd lumi-observatory
 
 # 2) Run the wizard — it walks you through each step:
 ./scripts/setup.sh

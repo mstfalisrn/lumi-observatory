@@ -93,10 +93,45 @@ type SourceItem = {
   id: string
   name: string
   source_type: string
+  reference: string
   is_enabled: boolean
   last_accessed_at: string | null
-  error_series_len: number
+  last_observed_at: string | null
+  last_content_hash: string | null
+  error_series: { at: string; code: string }[]
+  backoff_until: string | null
 }
+type SourceObservation = {
+  id: string
+  observed_at: string
+  seq: number
+  change_type: string
+  content_hash: string
+  change: { metadata?: Record<string, unknown>; untrusted?: boolean }
+}
+type DigestSchedule = {
+  id: string
+  name: string
+  interval_minutes: number
+  source_ids: string[]
+  minimum_tier: string
+  is_enabled: boolean
+  delivery_mode: string
+  last_generated_at: string | null
+}
+type DigestPreview = {
+  source_changes: unknown[]
+  risk_items: unknown[]
+  delivery_mode: string
+}
+type SourceMonitorStatus = {
+  monitor_enabled: boolean
+  memory_candidates_enabled: boolean
+  max_per_tick: number
+  allowed_http_hosts_configured: number
+}
+type AgentSkill = { id: string; title: string; description: string; execution_mode: string; allowed_tools: string[]; required_scope: string[] }
+type TrustSummary = { tiers: Record<string, number>; monitoring_enabled: boolean; risk_alerts_enabled: boolean; recent: { room: string; seq: number; nick: string; tier: string; score: number; reason: string; evaluated_at: string }[] }
 type LoginResponse = { token: string; email: string; role: string }
 type TaskCreateResponse = { run_id?: string; runId?: string; id?: string }
 
@@ -247,11 +282,25 @@ export function CommandCenter({ onCreated, compact }: { onCreated?:(runId:string
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [ok, setOk] = useState('')
+  const [skillId, setSkillId] = useState('')
+  const [target, setTarget] = useState('')
+  const skills = useFetch<AgentSkill[]>('/v1/skills')
+  const selectedSkill = skills.data?.find(skill => skill.id === skillId)
+  function scopedTask() {
+    if (!skillId) return {}
+    const scope: Record<string, unknown> = { kind: 'skill', skill_id: skillId }
+    if (target.trim()) {
+      if (skillId === 'approved-http-observation') scope.allowed_urls = [target.trim()]
+      if (skillId === 'github-observation') scope.github_repos = [target.trim()]
+      if (skillId === 'technocore-read-observation') scope.allowed_rooms = [target.trim()]
+    }
+    return scope
+  }
   async function submit() {
     if (!prompt.trim()) { setErr('prompt is required'); return }
     setBusy(true); setErr(''); setOk('')
     try {
-      const r = await api<TaskCreateResponse>('/v1/tasks', { method:'POST', body: JSON.stringify({ title: title||prompt.slice(0,60), prompt }) })
+      const r = await api<TaskCreateResponse>('/v1/tasks', { method:'POST', body: JSON.stringify({ title: title||prompt.slice(0,60), prompt, scope: scopedTask() }) })
       const id = r.run_id || r.runId || r.id || ''
       setOk(`Run queued: ${String(id).slice(0,8)}`)
       setPrompt(''); setTitle('')
@@ -272,8 +321,10 @@ export function CommandCenter({ onCreated, compact }: { onCreated?:(runId:string
       <div className="flex flex-wrap gap-2">
         <Input placeholder="title (optional)" value={title} onChange={e=>setTitle(e.target.value)} className="flex-none sm:w-[200px]" />
         <Input placeholder="prompt — what should it do?" value={prompt} onChange={e=>setPrompt(e.target.value)} className="min-w-[220px] flex-1" onKeyDown={e=> e.key==='Enter' && submit()} />
-        <Button onClick={submit} disabled={busy || !prompt.trim()} className="rounded-xl px-5 font-semibold">{busy?'sending…':'▶ Run'}</Button>
+        <Button onClick={submit} disabled={busy || !prompt.trim() || (!!selectedSkill && selectedSkill.required_scope.length > 0 && !target.trim())} className="rounded-xl px-5 font-semibold">{busy?'sending…':'▶ Run'}</Button>
       </div>
+      {!compact && <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(190px,0.8fr)_minmax(240px,1.2fr)]"><select value={skillId} onChange={event=>{setSkillId(event.target.value); setTarget('')}} className="h-10 rounded-xl border border-input bg-white/60 px-3 text-sm dark:bg-white/[0.04]"><option value="">General safe task</option>{skills.data?.filter(skill => skill.execution_mode === 'task').map(skill => <option key={skill.id} value={skill.id}>{skill.title}</option>)}</select>{selectedSkill && selectedSkill.required_scope.length > 0 ? <Input value={target} onChange={event=>setTarget(event.target.value)} placeholder={skillId === 'github-observation' ? 'owner/repository' : skillId === 'technocore-read-observation' ? 'configured room name' : 'exact approved HTTPS URL'} /> : <div className="flex items-center rounded-xl border border-dashed border-violet-200/70 px-3 text-xs text-muted-foreground dark:border-violet-900/40">{selectedSkill ? 'This skill has no operator target.' : 'Choose a bounded skill to add explicit scope.'}</div>}</div>}
+      {selectedSkill && !compact && <div className="mt-2 text-xs text-muted-foreground">{selectedSkill.description} Tool scope: {selectedSkill.allowed_tools.join(', ') || 'scheduled only'}.</div>}
       {err && <motion.div initial={{ opacity:0, y:4 }} animate={{opacity:1, y:0}} className="mt-3 flex items-center gap-2 rounded-xl border border-red-200/50 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-300">⚠ {err}</motion.div>}
       {ok && <motion.div initial={{ opacity:0, y:4 }} animate={{opacity:1, y:0}} className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-200/50 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-300">✓ {ok}</motion.div>}
     </div>
@@ -880,24 +931,109 @@ export function MemoryPage() {
   )
 }
 
-// ---------- Sources ----------
+// ---------- Sources & report-only digests ----------
+function DigestControls({ sources }: { sources: SourceItem[] }) {
+  const schedules = useFetch<DigestSchedule[]>('/v1/digest-schedules')
+  const preview = useFetch<DigestPreview>('/v1/digests/preview?hours=24&minimum_tier=WATCH')
+  const [name, setName] = useState('daily operational digest')
+  const [interval, setInterval] = useState('1440')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  function toggleSource(id: string) {
+    setSelectedIds(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id])
+  }
+  async function createSchedule() {
+    setBusy(true); setMsg('')
+    try {
+      await api<DigestSchedule>('/v1/digest-schedules', { method: 'POST', body: JSON.stringify({ name, interval_minutes: Number(interval), source_ids: selectedIds, minimum_tier: 'WATCH', is_enabled: false }) })
+      setMsg('✓ schedule saved as disabled'); schedules.reload()
+    } catch (error) { setMsg('⚠ ' + errMsg(error)) } finally { setBusy(false) }
+  }
+  async function toggleSchedule(schedule: DigestSchedule) {
+    setBusy(true); setMsg('')
+    try {
+      await api<DigestSchedule>(`/v1/digest-schedules/${schedule.id}`, { method: 'PUT', body: JSON.stringify({ is_enabled: !schedule.is_enabled }) })
+      setMsg(`✓ ${schedule.name} ${schedule.is_enabled ? 'disabled' : 'enabled'}`); schedules.reload()
+    } catch (error) { setMsg('⚠ ' + errMsg(error)) } finally { setBusy(false) }
+  }
+  async function generate(schedule: DigestSchedule) {
+    setBusy(true); setMsg('')
+    try {
+      const result = await api<{ created: boolean; report_id?: string }> (`/v1/digest-schedules/${schedule.id}/generate`, { method: 'POST' })
+      setMsg(result.created ? `✓ report ${result.report_id?.slice(0, 8) || 'created'}` : '✓ no changes; cursor advanced')
+      schedules.reload(); preview.reload()
+    } catch (error) { setMsg('⚠ ' + errMsg(error)) } finally { setBusy(false) }
+  }
+
+  return <div className="space-y-3">
+    <Card className="border-indigo-200/40 bg-gradient-to-br from-indigo-50/50 to-violet-50/20 dark:border-indigo-900/30 dark:from-indigo-950/10">
+      <CardHeader><CardTitle className="flex items-center gap-2 text-base"><FileText className="h-4 w-4 text-indigo-600" /> Report-only digests</CardTitle><CardDescription>Build deterministic local reports from stored source changes and risk metadata. Delivery remains disabled.</CardDescription></CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid gap-2 sm:grid-cols-2"><Input value={name} onChange={event=>setName(event.target.value)} placeholder="digest name" /><Input type="number" min="15" max="10080" value={interval} onChange={event=>setInterval(event.target.value)} /></div>
+        <div className="rounded-xl border border-dashed border-indigo-200/70 p-3 text-xs dark:border-indigo-900/40"><div className="mb-2 font-semibold">Scope (empty = all sources)</div><div className="flex flex-wrap gap-x-4 gap-y-2">{sources.map(source => <label key={source.id} className="flex items-center gap-1.5"><input type="checkbox" checked={selectedIds.includes(source.id)} onChange={()=>toggleSource(source.id)} /> {source.name}</label>)}</div></div>
+        <Button size="sm" className="rounded-xl" disabled={busy || !name.trim()} onClick={createSchedule}>Save disabled schedule</Button>
+      </CardContent>
+    </Card>
+    {preview.data && <div className="grid grid-cols-2 gap-3"><Card><CardContent className="p-3 text-center text-sm"><div className="text-xs text-muted-foreground">24h source changes</div><div className="text-xl font-bold">{preview.data.source_changes.length}</div></CardContent></Card><Card><CardContent className="p-3 text-center text-sm"><div className="text-xs text-muted-foreground">Risk items ≥ WATCH</div><div className="text-xl font-bold">{preview.data.risk_items.length}</div></CardContent></Card></div>}
+    {schedules.loading ? <TableSkeleton rows={1} /> : schedules.err ? <Err msg={schedules.err} onRetry={schedules.reload} /> : !schedules.data?.length ? <PremiumEmpty title="No digest schedules" msg="Schedules are saved disabled and generate reports only; enable them only after reviewing the environment toggle." icon={FileText} /> : schedules.data.map(schedule => <Card key={schedule.id}><CardContent className="flex flex-wrap items-center justify-between gap-3 p-4"><div><div className="font-semibold">{schedule.name} <Badge variant={schedule.is_enabled ? 'success' : 'secondary'} className="ml-2 text-[10px] rounded-full">{schedule.is_enabled ? 'enabled' : 'disabled'}</Badge></div><div className="mt-1 text-xs text-muted-foreground">every {schedule.interval_minutes} min · {schedule.delivery_mode} · last: {schedule.last_generated_at?.slice(0,19) || 'never'}</div></div><div className="flex gap-2"><Button size="sm" variant="outline" className="rounded-xl" disabled={busy} onClick={()=>toggleSchedule(schedule)}>{schedule.is_enabled ? 'Disable' : 'Enable'}</Button><Button size="sm" variant="outline" className="rounded-xl" disabled={busy} onClick={()=>generate(schedule)}>Generate</Button></div></CardContent></Card>)}
+    {msg && <div className={'rounded-xl border px-3 py-2 text-sm font-medium ' + (msg.startsWith('⚠') ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-300')}>{msg}</div>}
+  </div>
+}
+
 export function SourcesPage() {
-  const { data, err, loading, reload } = useFetch<SourceItem[]>('/v1/sources')
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between"><h1 className="text-xl font-bold tracking-tight flex items-center gap-2.5"><span className="h-8 w-8 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center text-white shadow-md"><Radio className="h-4 w-4" /></span> Sources</h1><Button variant="outline" size="sm" className="rounded-xl" onClick={reload}><RefreshCw className="h-4 w-4" /> Refresh</Button></div>
-      {loading ? <TableSkeleton/> : err ? <Err msg={err} onRetry={reload}/> : !data?.length ? <PremiumEmpty msg="No sources. They are added via the Technology First connector." title="No sources found" /> : data.map((s, idx)=> (
-        <motion.div key={s.id} initial={{ opacity:0, y:6 }} animate={{ opacity:1, y:0 }} transition={{ delay: idx*0.04 }}>
-        <Card className="group hover:shadow-md hover:-translate-y-0.5 transition-all">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-2.5"><span className="font-bold tracking-tight">{s.name}</span><Badge variant="outline" className="text-[10px] rounded-full bg-white dark:bg-white/5">{s.source_type}</Badge>{s.is_enabled ? <Badge variant="success" className="text-[10px] rounded-full">active</Badge> : <Badge variant="secondary" className="text-[10px] rounded-full">passive</Badge>}</div>
-            <div className="text-xs font-medium text-muted-foreground mt-1.5">error series: {s.error_series_len} {s.last_accessed_at?`· last: ${s.last_accessed_at.slice(0,19)}`:''}</div>
-          </CardContent>
-        </Card>
-        </motion.div>
-      ))}
-    </div>
-  )
+  const sources = useFetch<SourceItem[]>('/v1/sources')
+  const status = useFetch<SourceMonitorStatus>('/v1/sources/status')
+  const [name, setName] = useState('')
+  const [sourceType, setSourceType] = useState('http_json')
+  const [reference, setReference] = useState('')
+  const [enableOnSave, setEnableOnSave] = useState(false)
+  const [selected, setSelected] = useState<string | null>(null)
+  const observations = useFetch<SourceObservation[]>(selected ? `/v1/sources/${selected}/observations` : '', [selected])
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+  const data = sources.data || []
+  const referenceLabel = sourceType === 'http_json' ? 'approved https URL' : sourceType === 'github_repo' ? 'owner/repository' : sourceType === 'technocore_room' ? 'room' : 'not required for internal health'
+
+  function config() {
+    if (sourceType === 'http_json') return { url: reference.trim(), ingest_mode: 'metadata' }
+    if (sourceType === 'github_repo') return { repo: reference.trim() }
+    if (sourceType === 'technocore_room') return { room: reference.trim() }
+    return {}
+  }
+  async function createSource() {
+    setBusy(true); setMsg('')
+    try {
+      await api<SourceItem>('/v1/sources', { method: 'POST', body: JSON.stringify({ name, source_type: sourceType, config: config(), is_enabled: enableOnSave }) })
+      setName(''); setReference(''); setEnableOnSave(false); setMsg('✓ source saved'); sources.reload(); status.reload()
+    } catch (error) { setMsg('⚠ ' + errMsg(error)) } finally { setBusy(false) }
+  }
+  async function toggleSource(source: SourceItem) {
+    setBusy(true); setMsg('')
+    try {
+      await api<SourceItem>(`/v1/sources/${source.id}`, { method: 'PUT', body: JSON.stringify({ is_enabled: !source.is_enabled }) })
+      setMsg(`✓ ${source.name} ${source.is_enabled ? 'disabled' : 'enabled'}`); sources.reload()
+    } catch (error) { setMsg('⚠ ' + errMsg(error)) } finally { setBusy(false) }
+  }
+  async function scanSource(source: SourceItem) {
+    setBusy(true); setMsg('')
+    try {
+      const outcome = await api<{ change_type: string; changed: boolean; error_code?: string }> (`/v1/sources/${source.id}/scan`, { method: 'POST' })
+      setMsg(outcome.error_code ? `⚠ ${outcome.error_code}` : `✓ ${source.name}: ${outcome.change_type.toLowerCase()}`)
+      sources.reload(); if (selected === source.id) observations.reload()
+    } catch (error) { setMsg('⚠ ' + errMsg(error)) } finally { setBusy(false) }
+  }
+
+  return <div className="space-y-5">
+    <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-xl font-bold tracking-tight flex items-center gap-2.5"><span className="h-8 w-8 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center text-white shadow-md"><Radio className="h-4 w-4" /></span> Sources</h1><Button variant="outline" size="sm" className="rounded-xl" onClick={()=>{sources.reload(); status.reload()}}><RefreshCw className="h-4 w-4" /> Refresh</Button></div>
+    {status.data && <div className="flex flex-wrap gap-2 text-xs"><Badge variant={status.data.monitor_enabled ? 'success' : 'secondary'} className="rounded-full">monitoring {status.data.monitor_enabled ? 'enabled' : 'disabled'}</Badge><Badge variant={status.data.memory_candidates_enabled ? 'violet' : 'outline'} className="rounded-full">memory candidates {status.data.memory_candidates_enabled ? 'enabled' : 'disabled'}</Badge><Badge variant="outline" className="rounded-full">{status.data.allowed_http_hosts_configured} approved HTTP hosts</Badge></div>}
+    <Card><CardHeader><CardTitle className="text-base">Add a controlled source</CardTitle><CardDescription>HTTP sources must match the server allowlist. No credentials or arbitrary network targets are stored.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="grid gap-2 sm:grid-cols-3"><Input value={name} onChange={event=>setName(event.target.value)} placeholder="source name" /><select value={sourceType} onChange={event=>setSourceType(event.target.value)} className="h-10 rounded-xl border border-input bg-white/60 px-3 text-sm dark:bg-white/[0.04]"><option value="http_json">HTTP / JSON</option><option value="github_repo">GitHub repository</option><option value="internal_health">Internal health</option><option value="technocore_room">Technocore room</option></select><Input value={reference} disabled={sourceType === 'internal_health'} onChange={event=>setReference(event.target.value)} placeholder={referenceLabel} /></div><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={enableOnSave} onChange={event=>setEnableOnSave(event.target.checked)} /> Enable source after save (global monitor switch still applies)</label><Button className="rounded-xl" disabled={busy || !name.trim() || (sourceType !== 'internal_health' && !reference.trim())} onClick={createSource}>Save source</Button></CardContent></Card>
+    {sources.loading ? <TableSkeleton/> : sources.err ? <Err msg={sources.err} onRetry={sources.reload}/> : !data.length ? <PremiumEmpty msg="No sources have been registered. Start with a scoped, read-only source." title="No sources found" icon={Radio} /> : data.map((source, index) => <motion.div key={source.id} initial={{ opacity:0, y:6 }} animate={{ opacity:1, y:0 }} transition={{ delay:index*0.03 }}><Card className="group hover:shadow-md transition-all"><CardContent className="flex flex-wrap items-center justify-between gap-3 p-5"><div><div className="flex items-center gap-2"><span className="font-bold">{source.name}</span><Badge variant="outline" className="rounded-full text-[10px]">{source.source_type}</Badge><Badge variant={source.is_enabled ? 'success' : 'secondary'} className="rounded-full text-[10px]">{source.is_enabled ? 'enabled' : 'disabled'}</Badge></div><div className="mt-1 max-w-xl truncate font-mono text-xs text-muted-foreground">{source.reference || 'internal://health'} · observed {source.last_observed_at?.slice(0,19) || 'never'} · errors {source.error_series.length}</div>{source.backoff_until && <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">backoff until {source.backoff_until.slice(0,19)}</div>}</div><div className="flex gap-2"><Button size="sm" variant="outline" className="rounded-xl" disabled={busy} onClick={()=>toggleSource(source)}>{source.is_enabled ? 'Disable' : 'Enable'}</Button><Button size="sm" variant="outline" className="rounded-xl" disabled={busy} onClick={()=>scanSource(source)}>Scan</Button><Button size="sm" variant="ghost" className="rounded-xl" onClick={()=>setSelected(selected === source.id ? null : source.id)}>{selected === source.id ? 'Hide events' : 'Events'}</Button></div></CardContent></Card></motion.div>)}
+    {selected && <Card><CardHeader><CardTitle className="text-base">Source observation events</CardTitle><CardDescription>Only bounded metadata is stored. Remote text remains untrusted and is never auto-activated as memory.</CardDescription></CardHeader><CardContent>{observations.loading ? <TableSkeleton rows={2} /> : observations.err ? <Err msg={observations.err} onRetry={observations.reload} /> : !observations.data?.length ? <Empty msg="No observation events yet." /> : <div className="space-y-2">{observations.data.map(event => <div key={event.id} className="rounded-xl border border-zinc-100 p-3 text-xs dark:border-white/10"><div className="flex gap-2"><Badge variant={event.change_type === 'ERROR' ? 'destructive' : event.change_type === 'UNCHANGED' ? 'secondary' : 'violet'} className="rounded-full text-[10px]">{event.change_type}</Badge><span className="font-mono text-muted-foreground">{event.observed_at.slice(0,19)} · {event.content_hash.slice(0,12)}</span></div>{event.change.metadata && <pre className="mt-2 max-h-28 overflow-auto rounded-lg bg-zinc-950 p-2 text-zinc-100">{JSON.stringify(event.change.metadata, null, 2)}</pre>}</div>)}</div>}</CardContent></Card>}
+    <DigestControls sources={data} />
+    {msg && <div className={'rounded-xl border px-3 py-2 text-sm font-medium ' + (msg.startsWith('⚠') ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-emerald-300')}>{msg}</div>}
+  </div>
 }
 
 
@@ -1032,10 +1168,8 @@ export function AuditPage() {
   )
 }
 
-// ---------- Agents (M4) ----------
-// TODO(web): Add to App.tsx NAV: ['agents','Agents', Shield] and add 'agents' to PageKey.
-// This page uses GET /api/v1/agents/evaluations and /api/v1/agents/evaluations/stats.
-// Filter: tier (SAFE/RISKY/DANGEROUS), room; pagination limit/offset; auth required.
+// ---------- Trust Center ----------
+// Review durable agent evaluations, risk posture, and bounded skill manifests.
 type AgentEvaluation = {
   id: string; room: string; seq: number; global_seq: number; nick: string; did: string | null
   text: string; score: number; tier: string; reason: string; dimensions: Record<string, unknown>
@@ -1052,33 +1186,41 @@ export function AgentsPage() {
   qs.set('limit', String(limit)); qs.set('offset', String(offset))
   const { data, err, loading, reload } = useFetch<{total:number, items: AgentEvaluation[]}>('/v1/agents/evaluations?' + qs.toString(), [tier, room, offset])
   const stats = useFetch<{total:number, by_tier: Record<string, number>}>('/v1/agents/evaluations/stats')
+  const trust = useFetch<TrustSummary>('/v1/trust/summary')
+  const skills = useFetch<AgentSkill[]>('/v1/skills')
   const items = data?.items || []
   const total = data?.total || 0
+  const trustData = trust.data
+  const skillData = skills.data
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-xl font-bold tracking-tight flex items-center gap-2.5">
-          <span className="h-8 w-8 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center text-white shadow-md"><Shield className="h-4 w-4" /></span> Agents
+          <span className="h-8 w-8 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center text-white shadow-md"><Shield className="h-4 w-4" /></span> Trust Center
         </h1>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="rounded-xl" onClick={()=>{reload(); stats.reload()}}><RefreshCw className="h-4 w-4" /> Refresh</Button>
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={()=>{reload(); stats.reload(); trust.reload(); skills.reload()}}><RefreshCw className="h-4 w-4" /> Refresh</Button>
         </div>
       </div>
 
       {/* stats */}
       {stats.data && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {(['SAFE','RISKY','DANGEROUS','UNKNOWN'] as const).map(k => (
+          {(['SAFE','WATCH','RISKY','DANGEROUS'] as const).map(k => (
             <Card key={k}><CardContent className="p-4 text-center"><div className="text-xs font-medium text-muted-foreground">{k}</div><div className="text-xl font-bold">{stats.data!.by_tier[k] ?? 0}</div></CardContent></Card>
           ))}
           <Card className="col-span-2 sm:col-span-4"><CardContent className="p-3 text-center text-sm">Total: <span className="font-bold">{stats.data.total}</span></CardContent></Card>
         </div>
       )}
 
+      {trustData && <Card className="border-violet-200/40 bg-gradient-to-br from-violet-50/40 to-indigo-50/20 dark:border-violet-900/30 dark:from-violet-950/10"><CardContent className="space-y-3 p-4"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-sm">Live controls</span><Badge variant={trustData.monitoring_enabled ? 'success' : 'secondary'} className="rounded-full text-[10px]">monitoring {trustData.monitoring_enabled ? 'enabled' : 'disabled'}</Badge><Badge variant={trustData.risk_alerts_enabled ? 'warning' : 'outline'} className="rounded-full text-[10px]">risk alerts {trustData.risk_alerts_enabled ? 'enabled' : 'disabled'}</Badge></div><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{(['SAFE','WATCH','RISKY','DANGEROUS'] as const).map(key => <div key={key} className="rounded-xl border border-white/60 bg-white/60 p-2 text-center text-xs dark:border-white/10 dark:bg-white/[0.03]"><div className="text-muted-foreground">{key}</div><div className="font-bold text-base">{trustData.tiers[key] ?? 0}</div></div>)}</div></CardContent></Card>}
+
+      {skillData && <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Puzzle className="h-4 w-4" /> Bounded capabilities</CardTitle><CardDescription>Source-controlled manifests constrain skill tool access and required scope; they are not arbitrary prompts.</CardDescription></CardHeader><CardContent className="grid gap-2 md:grid-cols-2">{skillData.map(skill => <div key={skill.id} className="rounded-xl border border-zinc-100 p-3 dark:border-white/10"><div className="flex items-center justify-between gap-2"><span className="font-semibold text-sm">{skill.title}</span><Badge variant="outline" className="rounded-full text-[10px]">{skill.execution_mode}</Badge></div><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{skill.description}</p><div className="mt-2 flex flex-wrap gap-1">{skill.allowed_tools.map(tool => <Badge key={tool} variant="secondary" className="rounded-full text-[9px]">{tool}</Badge>)}</div></div>)}</CardContent></Card>}
+
       {/* filters */}
       <Card><CardContent className="flex flex-wrap gap-2 p-3">
         <select value={tier} onChange={e=>{setTier(e.target.value); setOffset(0)}} className="h-10 rounded-xl border border-input bg-white/60 px-3 text-sm font-medium dark:bg-white/[0.04]">
-          <option value="">All tiers</option><option value="SAFE">SAFE</option><option value="RISKY">RISKY</option><option value="DANGEROUS">DANGEROUS</option>
+          <option value="">All tiers</option><option value="SAFE">SAFE</option><option value="WATCH">WATCH</option><option value="RISKY">RISKY</option><option value="DANGEROUS">DANGEROUS</option>
         </select>
         <div className="relative flex-1 min-w-[160px] flex items-center gap-2">
           <Input placeholder="filter by room (optional)" value={room} onChange={e=>{setRoom(e.target.value)}} className="rounded-xl" />
@@ -1098,10 +1240,10 @@ export function AgentsPage() {
                       <span className="font-mono text-xs bg-zinc-100 px-2 py-1 rounded-full dark:bg-white/10">{ev.room} #{ev.seq}</span>
                       <span className="text-sm font-semibold">{ev.nick || ev.did || 'unknown'}</span>
                       <span className="text-xs text-muted-foreground">score {ev.score}</span>
-                      <a href={ev.link} target="_blank" rel="noreferrer" className="ml-auto text-xs text-violet-600 hover:underline font-mono">external/r/{ev.room}</a>
+                      {ev.link && <a href={ev.link} target="_blank" rel="noreferrer" className="ml-auto text-xs text-violet-600 hover:underline font-mono">external/r/{ev.room}</a>}
                     </div>
                     {ev.reason && <div className="text-sm leading-relaxed">reason: <span className="text-muted-foreground">{ev.reason}</span></div>}
-                    {ev.text && <details className="text-xs"><summary className="cursor-pointer font-medium">message</summary><pre className="mt-2 rounded-xl bg-zinc-950 text-zinc-100 p-3 whitespace-pre-wrap break-words max-h-32 overflow-auto">{ev.text.slice(0,1000)}</pre></details>}
+                    {ev.text && <details className="text-xs"><summary className="cursor-pointer font-medium">untrusted remote message</summary><pre className="mt-2 rounded-xl bg-zinc-950 text-zinc-100 p-3 whitespace-pre-wrap break-words max-h-32 overflow-auto">{ev.text.slice(0,1000)}</pre></details>}
                     <div className="text-[11px] font-mono text-muted-foreground">{ev.evaluated_at?.slice(0,19)} · {ev.model}</div>
                   </CardContent>
                 </Card>

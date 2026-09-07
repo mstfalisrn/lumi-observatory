@@ -40,8 +40,9 @@ class CircuitBreaker:
 class RunCoordinator:
     """Executes a single run QUEUED -> ... -> COMPLETED/FAILED/CANCELLED/PAUSED."""
 
-    def __init__(self, run_id: str | None = None, budget: RunBudget | None = None,
-                 *, allowlist_tools: set[str] | None = None) -> None:
+    def __init__(
+        self, run_id: str | None = None, budget: RunBudget | None = None, *, allowlist_tools: set[str] | None = None
+    ) -> None:
         self.run_id = run_id or str(uuid.uuid4())
         self.budget = budget or RunBudget()
         self.status = RunStatus.QUEUED
@@ -56,6 +57,10 @@ class RunCoordinator:
         self._breaker = CircuitBreaker()
         self.allowlist = allowlist_tools or set()
         self._events: list[dict] = []
+        # Safe, machine-readable terminal reason. Never contains raw tool input
+        # or exception text, so it can be persisted in Run.error and exposed to
+        # operators without leaking secrets.
+        self.failure_code = ""
 
     # --- Controls ---
     def request_stop(self) -> None:
@@ -83,18 +88,23 @@ class RunCoordinator:
             self.emit("PAUSED", {})
             return False
         if self.started_at and (time.monotonic() - self.started_at) > self.budget.max_wall_seconds:
+            self.failure_code = "wall_time_exceeded"
             self.emit("WALL_TIME_EXCEEDED", {})
             return False
         if self.iteration >= self.budget.max_iterations:
+            self.failure_code = "iteration_limit_exceeded"
             self.emit("ITERATION_LIMIT", {"limit": self.budget.max_iterations})
             return False
         if self.tool_calls_count >= self.budget.max_tool_calls:
+            self.failure_code = "tool_call_limit_exceeded"
             self.emit("TOOL_CALL_LIMIT", {"limit": self.budget.max_tool_calls})
             return False
         if self.tokens_used > self.budget.max_tokens:
+            self.failure_code = "token_budget_exceeded"
             self.emit("TOKEN_BUDGET_EXCEEDED", {})
             return False
         if self.cost_used > self.budget.max_cost:
+            self.failure_code = "cost_budget_exceeded"
             self.emit("COST_BUDGET_EXCEEDED", {})
             return False
         return True
@@ -117,10 +127,21 @@ class RunCoordinator:
         except Exception:
             pass
 
-    async def run(self, executor, planner, assembler, policy, provider, verifier,
-                  event_sink=None, pause_check=None, stop_check=None):
+    async def run(
+        self,
+        executor,
+        planner,
+        assembler,
+        policy,
+        provider,
+        verifier,
+        event_sink=None,
+        pause_check=None,
+        stop_check=None,
+    ):
         """Coordinator loop — actions with arguments, LLM context, budget/limit."""
         import json as _json
+
         self.status = RunStatus.CONTEXT_BUILDING
         self.started_at = time.monotonic()
         self.emit("STARTED", {"run_id": self.run_id})
@@ -131,6 +152,11 @@ class RunCoordinator:
         plan = await planner.make_plan(task=executor.task)
         self.emit("PLAN", {"plan": plan})
         await self._sink(event_sink, "PLAN", {"plan": plan})
+        guard = plan.get("_plan_guard") if isinstance(plan, dict) else None
+        if isinstance(guard, dict):
+            # Plan guards are intentionally non-sensitive reason codes only.
+            self.emit("PLAN_GUARD", guard)
+            await self._sink(event_sink, "PLAN_GUARD", guard)
         self._add_usage(plan.get("_llm_usage") or {})
 
         # 2) context (prompt sent to model — for replan/decision)
@@ -143,8 +169,20 @@ class RunCoordinator:
         actions = plan.get("actions", [])
         if not actions:
             # old format tolerance: tools name list -> action without args
-            actions = [{"action_id": f"action_{i+1}", "tool": t, "arguments": {}}
-                       for i, t in enumerate(plan.get("tools", []))]
+            actions = [
+                {"action_id": f"action_{i + 1}", "tool": t, "arguments": {}}
+                for i, t in enumerate(plan.get("tools", []))
+            ]
+        if not actions:
+            # An explicit unsafe/malformed capability request must not quietly
+            # become a successful unrelated health check.
+            self.status = RunStatus.FAILED
+            self.failure_code = "plan_guard_rejected" if isinstance(guard, dict) else "plan_has_no_actions"
+            self.emit("VERIFY", {"passed": False, "reason": self.failure_code})
+            await self._sink(event_sink, "VERIFY", {"passed": False, "reason": self.failure_code})
+            self.emit("END", {"final_status": self.status.value})
+            await self._sink(event_sink, "END", {"final_status": self.status.value})
+            return self.status.value, executed, self._events
 
         for act in actions:
             if not isinstance(act, dict):
@@ -161,24 +199,32 @@ class RunCoordinator:
                 self.emit("CANCELLED", {})
                 break
             if not self.can_continue():
+                if not self._pause and not self._kill:
+                    self.status = RunStatus.FAILED
                 break
             self.iteration += 1
             self.status = RunStatus.EXECUTING
 
             decision = policy.decide(tool)
             self.emit("POLICY_CHECK", {"tool": tool, "arguments": args, "decision": decision.decision})
-            await self._sink(event_sink, "POLICY_CHECK", {"tool": tool, "arguments": args, "decision": decision.decision})
+            await self._sink(
+                event_sink, "POLICY_CHECK", {"tool": tool, "arguments": args, "decision": decision.decision}
+            )
 
             if decision.decision == "DENY":
                 self.status = RunStatus.FAILED
+                self.failure_code = f"policy_denied:{tool or 'unknown'}"
                 self.emit("DENIED", {"tool": tool})
                 break
 
             if decision.decision == "REQUIRE_APPROVAL":
                 self.status = RunStatus.WAITING_APPROVAL
-                ap_payload = {"tool": tool, "arguments": args,
-                              "action_id": act.get("action_id", ""),
-                              "action_class": decision.action_class}
+                ap_payload = {
+                    "tool": tool,
+                    "arguments": args,
+                    "action_id": act.get("action_id", ""),
+                    "action_class": decision.action_class,
+                }
                 self.emit("AWAITING_APPROVAL", ap_payload)
                 await self._sink(event_sink, "AWAITING_APPROVAL", ap_payload)
                 break
@@ -186,16 +232,19 @@ class RunCoordinator:
             try:
                 result = await executor.execute(tool, **args)
                 self.tool_calls_count += 1
-                executed.append({"action_id": act.get("action_id"), "tool": tool,
-                                 "arguments": args, "result": result, "ok": True})
+                executed.append(
+                    {"action_id": act.get("action_id"), "tool": tool, "arguments": args, "result": result, "ok": True}
+                )
                 self.emit("TOOL_CALL", {"tool": tool, "arguments": args, "ok": True})
-                await self._sink(event_sink, "TOOL_CALL", {"tool": tool, "arguments": args, "result": result, "ok": True})
+                await self._sink(
+                    event_sink, "TOOL_CALL", {"tool": tool, "arguments": args, "result": result, "ok": True}
+                )
                 # tool output to context as UNTRUSTED_DATA
-                assembler.add("untrusted", _json.dumps(result, default=str)[:4000],
-                              title=f"tool:{tool}", relevance=0.5)
+                assembler.add("untrusted", _json.dumps(result, default=str)[:4000], title=f"tool:{tool}", relevance=0.5)
                 self._breaker.reset(tool)
             except Exception as e:
                 had_error = True
+                self.failure_code = f"tool_error:{tool or 'unknown'}:{type(e).__name__}"
                 self.emit("TOOL_ERROR", {"tool": tool, "error": type(e).__name__, "msg": str(e)[:200]})
                 await self._sink(event_sink, "TOOL_ERROR", {"tool": tool, "error": type(e).__name__})
                 executed.append({"tool": tool, "arguments": args, "error": type(e).__name__, "ok": False})
@@ -209,8 +258,13 @@ class RunCoordinator:
             self.status = RunStatus.PAUSED
         elif self._kill:
             self.status = RunStatus.CANCELLED
-        elif self.status in (RunStatus.QUEUED, RunStatus.EXECUTING, RunStatus.PLANNING,
-                             RunStatus.CONTEXT_BUILDING, RunStatus.POLICY_CHECK):
+        elif self.status in (
+            RunStatus.QUEUED,
+            RunStatus.EXECUTING,
+            RunStatus.PLANNING,
+            RunStatus.CONTEXT_BUILDING,
+            RunStatus.POLICY_CHECK,
+        ):
             if had_error:
                 self.status = RunStatus.FAILED
                 self.emit("VERIFY", {"passed": False, "reason": "tool_error"})
@@ -221,6 +275,8 @@ class RunCoordinator:
                 except Exception:
                     vres = None
                 passed = bool(vres and vres.passed)
+                if not passed:
+                    self.failure_code = self.failure_code or "verification_failed"
                 self.emit("VERIFY", {"passed": passed, "evidence_n": len(executed)})
                 await self._sink(event_sink, "VERIFY", {"passed": passed, "evidence_n": len(executed)})
                 self.status = RunStatus.PERSISTING if passed else RunStatus.FAILED

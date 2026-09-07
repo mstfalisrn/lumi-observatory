@@ -1,0 +1,14 @@
+{
+  "id": "system-health",
+  "title": "System health observation",
+  "description": "Collects bounded internal service health evidence.",
+  "version": 1,
+  "execution_mode": "task",
+  "allowed_tools": ["internal_health"],
+  "required_scope": [],
+  "actions": [
+    {"tool": "internal_health", "arguments": {}, "reason": "Collect current internal health evidence."}
+  ],
+  "evidence_contract": ["Internal health status is recorded."],
+  "safety_notes": ["Read-only.", "Does not access host shell, Docker, files, or secrets."]
+}
