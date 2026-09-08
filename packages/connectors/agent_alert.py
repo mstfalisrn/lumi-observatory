@@ -41,7 +41,12 @@ def _format_msg(ev: Any) -> str:
     who = nick or did or "unknown"
     # Format the nickname and DID when both are available
     if nick and did:
-        who = f"{nick} ({did[:16]}…)" if len(did) > 16 else f"{nick} ({did})"
+        if nick.startswith("did:") and did.startswith("did:"):
+            who = nick
+        elif len(did) > 16:
+            who = f"{nick} ({did[:16]}…)"
+        else:
+            who = f"{nick} ({did})"
     elif did:
         who = did
 
