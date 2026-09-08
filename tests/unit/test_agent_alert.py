@@ -102,7 +102,7 @@ def test_build_risk_reaction_english_template():
         {
             "room": "lobby",
             "seq": 7,
-            "did": "did:key:z6Mk6dEw5gj6kjWU59M4UMcfHffsQLkwov5eaLaftEcwrq7e",
+            "did": "did:key:z6Mkk5VyfvyY6GzwBeBm9vaW8mDsDv2oDoL1GMVbiWaxn3u2",
             "tier": "DANGEROUS",
             "score": 85,
             "reason": "heuristic: ssrf",
