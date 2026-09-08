@@ -93,3 +93,28 @@ def test_heuristic_snippet_masks_secret_and_reports_match():
     assert "secret leak" in res["matched"]
     assert res["snippet"]
     assert "sk-live-1234567890" not in res["snippet"]
+
+
+def test_build_risk_reaction_english_template():
+    from connectors.agent_alert import build_risk_reaction, should_react
+
+    msg = build_risk_reaction(
+        {
+            "room": "lobby",
+            "seq": 7,
+            "did": "did:key:z6Mk6dEw5gj6kjWU59M4UMcfHffsQLkwov5eaLaftEcwrq7e",
+            "tier": "DANGEROUS",
+            "score": 85,
+            "reason": "heuristic: ssrf",
+        }
+    )
+    assert "did:key:z6Mk6dEw5gj6kjWU59M4UMcfHffsQLkwov5eaLaftEcwrq7e" in msg
+    assert "DANGEROUS" in msg
+    assert "heuristic: ssrf" in msg
+    assert "caution" in msg.lower()
+    assert "LUMI Observatory" in msg
+
+    assert should_react(None, 1000, 300) is True
+    assert should_react(1000, 1100, 300) is False
+    assert should_react(1000, 1300, 300) is True
+    assert should_react(1000, 5000, 0) is True

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 
 from connectors.technocore import TechnocoreConnector
 from observability.config import settings
@@ -43,6 +44,14 @@ class AgentScorer:
         self.interval = interval
         self._connector = TechnocoreConnector(base_url=self.base_url)
         self._discovered: set[str] = set()
+        self._last_react: dict[str, float] = {}
+        # Load the signing key once (scheduler shares the worker DID identity).
+        if settings.TECHNOCORE_ENABLED and settings.TECHNOCORE_ED25519_KEY_PATH:
+            try:
+                self._connector.load_or_generate_key(settings.TECHNOCORE_ED25519_KEY_PATH)
+                log.info("technocore DID ready: %s", getattr(self._connector, "did_public", ""))
+            except Exception as e:
+                log.warning("technocore key load failed: %s", str(e)[:150])
 
     async def poll_once(self, session) -> int:
         if not settings.TECHNOCORE_ENABLED:
@@ -221,6 +230,27 @@ class AgentScorer:
                     ev.snippet = result.get("snippet") or ""
                 except Exception:
                     pass
+
+                # React INTO the room (external write, opt-in): high-risk → English warning.
+                if settings.TECHNOCORE_ROOM_REACT_ENABLED:
+                    try:
+                        from connectors.agent_alert import build_risk_reaction, should_react
+
+                        tier = str(getattr(ev, "tier", "") or "").upper()
+                        if tier in ("RISKY", "DANGEROUS"):
+                            last = self._last_react.get(room, 0.0)
+                            if should_react(last, time.time(), settings.TECHNOCORE_ROOM_REACT_INTERVAL):
+                                txt = build_risk_reaction(ev)
+                                if txt:
+                                    await self._connector.signed_post(room, txt)
+                                    self._last_react[room] = time.time()
+                                    log.info(
+                                        "risk reaction posted room=%s did=%s",
+                                        room,
+                                        getattr(ev, "did", "") or getattr(ev, "nick", ""),
+                                    )
+                    except Exception as e:
+                        log.warning("risk reaction failed room=%s: %s", room, str(e)[:150])
 
                 # Telegram is an external write: alerts are opt-in even when monitoring is enabled.
                 if settings.RISK_ALERTS_ENABLED:

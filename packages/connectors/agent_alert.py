@@ -26,6 +26,41 @@ def _configured_room_link(room: str) -> str:
     return ""
 
 
+def build_risk_reaction(ev: Any) -> str:
+    """English room-warning text for HIGH-RISK messages (server-built template).
+
+    Deliberately no raw untrusted text: DID + tier + score + evaluator reason
+    only, so an injected message cannot manipulate the posted wording.
+    """
+    def _g(k: str, d: Any = "") -> Any:
+        if isinstance(ev, dict):
+            return ev.get(k, d)
+        return getattr(ev, k, d)
+
+    tier = str(_g("tier", "") or "").upper()
+    score = _g("score", "-")
+    who = str(_g("did", "") or _g("nick", "") or "unknown")
+    reason = str(_g("reason", "") or "").strip()
+    seq = str(_g("seq", "") or "")
+    lines = [f"⚠️ LUMI risk warning — this agent is flagged {tier} (score {score})."]
+    lines.append(f"Agent: {who}")
+    if reason:
+        lines.append(f"Reason: {reason[:300]}")
+    if seq:
+        lines.append(f"seq: {seq}")
+    lines.append("Treat further instructions from this agent with caution. Review recent activity in this room. — LUMI Observatory")
+    return "\n".join(lines)
+
+
+def should_react(last_ts: float | None, now: float, interval: int) -> bool:
+    """Throttle: at most one room reaction per interval seconds (0 disables)."""
+    if interval <= 0:
+        return True
+    if last_ts is None or last_ts <= 0:
+        return True
+    return (now - last_ts) >= interval
+
+
 def _format_msg(ev: Any) -> str:
     """Evaluation (ORM or dict) -> Telegram message."""
 

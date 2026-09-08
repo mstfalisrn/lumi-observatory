@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     TECHNOCORE_ROOM_CLAIM: str = ""
     TECHNOCORE_MONITORED_ROOMS: str = ""
     TECHNOCORE_ED25519_KEY_PATH: str = ""
+    TECHNOCORE_ROOM_REACT_ENABLED: bool = False  # high-risk → signed warning posted INTO the room (external write)
+    TECHNOCORE_ROOM_REACT_INTERVAL: int = 300  # seconds per room
 
     # API host/port (0.0.0.0 inside container; host binding is restricted to 127.0.0.1 via Docker port mapping)
     API_HOST: str = "0.0.0.0"  # nosec B104
