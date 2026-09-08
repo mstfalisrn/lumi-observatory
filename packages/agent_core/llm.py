@@ -113,7 +113,7 @@ class OpenAICompatibleProvider(LLMProvider):
                 arguments=json.loads(tc["function"].get("arguments") or "{}"),
                 id=tc.get("id"),
             )
-            for tc in msg.get("tool_calls", [])
+            for tc in (msg.get("tool_calls") or [])
         ]
         return LLMResult(
             text=msg.get("content") or "",
