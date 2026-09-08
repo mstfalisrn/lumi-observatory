@@ -108,7 +108,7 @@ def test_build_risk_reaction_english_template():
             "reason": "heuristic: ssrf",
         }
     )
-    assert "did:key:z6Mk6dEw5gj6kjWU59M4UMcfHffsQLkwov5eaLaftEcwrq7e" in msg
+    assert "did:key:z6Mkk5VyfvyY6GzwBeBm9vaW8mDsDv2oDoL1GMVbiWaxn3u2" in msg
     assert "DANGEROUS" in msg
     assert "heuristic: ssrf" in msg
     assert "caution" in msg.lower()
