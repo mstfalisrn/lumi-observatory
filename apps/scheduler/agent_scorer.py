@@ -11,6 +11,12 @@ from observability.config import settings
 
 log = logging.getLogger("lumi.agent_scorer")
 
+try:
+    from connectors import agent_evaluator as _ae  # type: ignore
+except Exception:
+    _ae = None  # type: ignore
+
+
 def configured_rooms(raw: str) -> list[str]:
     return [x.strip() for x in raw.split(",") if x.strip()]
 
@@ -123,18 +129,11 @@ class AgentScorer:
                     continue
 
                 text = str(msg.get("text", "") or msg.get("message", "") or "")
-                nick = str(msg.get("nick", "") or msg.get("author", "") or msg.get("sender", "") or "")
-                did = msg.get("did")
-                if did is not None:
-                    did = str(did)
+                disp, _from_did = _ae.extract_author(msg) if _ae is not None else ("", "")
+                nick = disp
+                did = _from_did or (str(msg.get("did")) if msg.get("did") is not None else None)
 
-                # evaluate — via connectors.agent_evaluator.evaluate (alias)
-                try:
-                    # error-free import: agent_evaluator + agent_alert
-                    from connectors import agent_evaluator as _ae  # type: ignore
-                except Exception:
-                    _ae = None  # type: ignore
-
+                # evaluate — via connectors.agent_evaluator.evaluate (module-level _ae import)
                 result: dict | None = None
                 if _ae is not None:
                     # spec: agent_evaluator.evaluate — actual function evaluate_agent_message
@@ -215,6 +214,13 @@ class AgentScorer:
                     if seq > max_seq:
                         max_seq = seq
                     continue
+
+                # Rich alert context (derived, not persisted columns)
+                try:
+                    ev.matched = result.get("matched") or []
+                    ev.snippet = result.get("snippet") or ""
+                except Exception:
+                    pass
 
                 # Telegram is an external write: alerts are opt-in even when monitoring is enabled.
                 if settings.RISK_ALERTS_ENABLED:

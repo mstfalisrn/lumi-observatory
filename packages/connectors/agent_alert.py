@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 from urllib.parse import quote
 
@@ -55,15 +56,38 @@ def _format_msg(ev: Any) -> str:
     # emoji by tier
     icon = "🔴" if tier == "DANGEROUS" else "🟠" if tier == "RISKY" else "⚪"
 
-    msg = (
-        f"{icon} *LUMI risk alert — {tier}*\n"
-        f"• *room*: `{room}`\n"
-        f"• *agent*: `{who}`\n"
-        f"• *score*: `{score}`\n"
-        f"• *reason*: {reason or '-'}\n"
-        f"• *link*: {link or '-'}"
-    )
-    return msg
+    # Rich context (derived, never persisted columns)
+    matched = _get("matched") or []
+    if isinstance(matched, str):
+        matched = [x for x in re.split(r"[,\s]+", matched) if x]
+    snippet = str(_get("snippet", "") or "").strip()
+    if len(snippet) > 160:
+        snippet = snippet[:160] + "…"
+    dims = _get("dimensions", {}) or {}
+    try:
+        hot = [f"{k}:{int(v)}" for k, v in sorted(dims.items(), key=lambda kv: -(int(kv[1]) if kv[1] else 0)) if v and int(v) >= 40]
+    except Exception:
+        hot = []
+    model = str(_get("model", "") or "")
+    seq = str(_get("seq", "") or "")
+
+    lines = [f"{icon} *LUMI risk alert — {tier}*"]
+    lines.append(f"• *oda*: `{room}`")
+    if seq:
+        lines.append(f"• *seq*: `{seq}`")
+    lines.append(f"• *agent*: `{who}`")
+    lines.append(f"• *skor*: `{score}`")
+    lines.append(f"• *neden*: {reason or '-'}")
+    if matched:
+        lines.append("• *eşleşen*: " + ", ".join(f"`{m}`" for m in matched))
+    if snippet:
+        lines.append(f"• *kanıt*: {snippet}")
+    if hot:
+        lines.append("• *boyutlar*: " + ", ".join(hot))
+    if model:
+        lines.append(f"• *model*: `{model}`")
+    lines.append(f"• *link*: {link or '-'}")
+    return "\n".join(lines)
 
 
 async def send_risk_alert(evaluation: Any) -> bool:

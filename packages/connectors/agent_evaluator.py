@@ -73,6 +73,81 @@ _HEURISTIC_PATTERNS: list[tuple[re.Pattern, str, int]] = [
 ]
 
 
+def _snippet_for(text: str, labels: list[str]) -> str:
+    """Masked ~140-char excerpt around the first matched heuristic pattern."""
+    if not labels or not text:
+        return ""
+    span = (0, 0)
+    for pat, label, _ in _HEURISTIC_PATTERNS:
+        if label in labels:
+            m = pat.search(text)
+            if m:
+                span = m.span()
+                break
+    start = max(0, span[0] - 40)
+    end = min(len(text), span[1] + 80)
+    excerpt = text[start:end].replace("\n", " ").strip()
+    if len(excerpt) > 140:
+        excerpt = excerpt[:140] + "…"
+    if not excerpt:
+        return ""
+    try:
+        from observability.security import redact
+
+        excerpt = str(redact(excerpt) or excerpt)
+    except Exception:
+        pass
+    excerpt = _SECRET_TOKEN_RX.sub("***", excerpt)
+    return excerpt
+
+
+# Local secret-token mask: applied on top of observability.security.redact so
+# alert snippets never carry a live credential value into Telegram.
+_SECRET_TOKEN_RX = re.compile(
+    r"(?i)("
+    r"sk-[A-Za-z0-9_\-]{6,}"
+    r"|ghp_[A-Za-z0-9]{20,}"
+    r"|xox[baprs]-[A-Za-z0-9\-]{10,}"
+    r"|AKIA[0-9A-Z]{16}"
+    r"|AIza[0-9A-Za-z_\-]{20,}"
+    r"|Bearer\s+[A-Za-z0-9._\-]{10,}"
+    r"|(?:api[_-]?key|apikey|token|password|secret)\s*[:=]\s*[A-Za-z0-9_\-\.]{6,}"
+    r")"
+)
+
+
+def _short_did(did: str) -> str:
+    if len(did) <= 20:
+        return did
+    return f"{did[:12]}…{did[-6:]}"
+
+
+def extract_author(msg: dict) -> tuple[str, str]:
+    """(display_name, did) from a Technocore message dict.
+
+    Prefers explicit author fields (nick/author/sender), falls back to the
+    `from` DID field and an `Agent-NN [did:...]:` prefix parsed from the text.
+    """
+    try:
+        nick = str(msg.get("nick") or msg.get("author") or msg.get("sender") or "").strip()
+    except Exception:
+        nick = ""
+    try:
+        frm = msg.get("from") or msg.get("did") or msg.get("author_id") or ""
+        did = str(frm).strip() if frm else ""
+    except Exception:
+        did = ""
+    if nick:
+        return nick[:120], did
+    if did:
+        txt = str(msg.get("text") or msg.get("message") or "")
+        m = re.search(r"^\s*([A-Za-z0-9][A-Za-z0-9 _\-.()]{0,39}?)\s*\[?\s*did:", txt)
+        if m:
+            return m.group(1).strip()[:120], did
+        return _short_did(did), did
+    return "", ""
+
+
 def _heuristic_evaluate(text: str) -> dict:
     max_score = 10
     matched: list[str] = []
@@ -86,10 +161,11 @@ def _heuristic_evaluate(text: str) -> dict:
         max_score = max(max_score, 25)
         matched.append("long message")
     if not text.strip():
-        return {"score": 5, "tier": TIER_SAFE, "reason": "empty message — SAFE", "dimensions": {"intent": 5, "safety": 5, "quality": 10, "value": 10, "risk": 5}}
+        return {"score": 5, "tier": TIER_SAFE, "reason": "empty message — SAFE", "dimensions": {"intent": 5, "safety": 5, "quality": 10, "value": 10, "risk": 5}, "matched": [], "snippet": ""}
     if matched:
         tier = _tier_from_score(max_score)
-        reason = f"heuristic: {', '.join(sorted(set(matched)))}"
+        labels = sorted(set(matched))
+        reason = f"heuristic: {', '.join(labels)}"
         # distribute dimensions
         dims = {"intent": 0, "safety": 0, "quality": 10, "value": 10, "risk": 0}
         for m in set(matched):
@@ -106,9 +182,9 @@ def _heuristic_evaluate(text: str) -> dict:
         # ensure risk reflects max
         if max_score >= 60:
             dims["risk"] = max(dims["risk"], max_score)
-        return {"score": max_score, "tier": tier, "reason": reason, "dimensions": dims}
+        return {"score": max_score, "tier": tier, "reason": reason, "dimensions": dims, "matched": labels, "snippet": _snippet_for(text, labels)}
     # benign
-    return {"score": 10, "tier": TIER_SAFE, "reason": "no heuristic risk detected — SAFE", "dimensions": {"intent": 5, "safety": 5, "quality": 5, "value": 5, "risk": 10}}
+    return {"score": 10, "tier": TIER_SAFE, "reason": "no heuristic risk detected — SAFE", "dimensions": {"intent": 5, "safety": 5, "quality": 5, "value": 5, "risk": 10}, "matched": [], "snippet": ""}
 
 
 def _normalize_llm_result(raw: dict, fallback_text: str) -> dict:
@@ -128,7 +204,7 @@ def _normalize_llm_result(raw: dict, fallback_text: str) -> dict:
             dims[k] = max(0, min(100, int(dims_raw.get(k, score // 2))))
         except Exception:
             dims[k] = score // 2
-    return {"score": score, "tier": tier, "reason": reason, "dimensions": dims}
+    return {"score": score, "tier": tier, "reason": reason, "dimensions": dims, "matched": [], "snippet": ""}
 
 
 async def evaluate_agent_message(
