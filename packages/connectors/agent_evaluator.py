@@ -257,7 +257,7 @@ async def evaluate_agent_message(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
@@ -273,7 +273,7 @@ async def evaluate_agent_message(
             norm["model"] = model
             return norm
     except Exception as e:
-        logger.warning("agent_evaluator LLM failed, fallback heuristic: %s", e)
+        logger.warning("agent_evaluator LLM failed, fallback heuristic: %s (%s)", type(e).__name__, str(e)[:200])
         res = _heuristic_evaluate(text)
         res["model"] = f"heuristic/fallback:{type(e).__name__}"
         return res
