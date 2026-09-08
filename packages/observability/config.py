@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = ""
     LLM_MODEL: str = ""
     LLM_API_KEY: str = ""
+    LLM_SESSION_ID: str = ""  # sent as x-opencode-session (required by OpenCode Go free tier)
+    LLM_USER_AGENT: str = ""  # override; default browser-like UA (Cloudflare-protected providers)
 
     # GitHub — optional; empty means planner must not auto-generate github actions
     DEFAULT_GITHUB_REPO: str = ""

@@ -10,6 +10,25 @@ import httpx
 
 from observability.config import settings
 
+_DEFAULT_LLM_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
+
+def _llm_headers(api_key: str) -> dict[str, str]:
+    """Common headers incl. browser-like UA and optional x-opencode-session.
+
+    Cloudflare-fronted providers (e.g. OpenCode Zen Go) return 403 for the
+    default python-httpx UA and 400 MissingSessionID without a session header.
+    """
+    headers = {"User-Agent": settings.LLM_USER_AGENT or _DEFAULT_LLM_USER_AGENT}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    if settings.LLM_SESSION_ID:
+        headers["x-opencode-session"] = settings.LLM_SESSION_ID
+    return headers
+
 
 @dataclass
 class LLMMessage:
@@ -83,7 +102,7 @@ class OpenAICompatibleProvider(LLMProvider):
         }
         if tools is not None:
             payload["tools"] = [{"type": "function", "function": t} for t in tools]
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+        headers = _llm_headers(self.api_key)
         resp = await self._client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()
@@ -140,7 +159,7 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
             r = await client.post(
                 f"{self.base_url}/embeddings",
                 json={"model": self.model, "input": text[:8000]},
-                headers={"Authorization": f"Bearer {self.api_key}"},
+                headers=_llm_headers(self.api_key),
             )
             r.raise_for_status()
             data = r.json()

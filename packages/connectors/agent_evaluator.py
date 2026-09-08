@@ -161,6 +161,13 @@ async def evaluate_agent_message(
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if settings.LLM_API_KEY:
         headers["Authorization"] = f"Bearer {settings.LLM_API_KEY}"
+    headers["User-Agent"] = (
+        settings.LLM_USER_AGENT
+        or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    )
+    if settings.LLM_SESSION_ID:
+        headers["x-opencode-session"] = settings.LLM_SESSION_ID
 
     payload = {
         "model": model,

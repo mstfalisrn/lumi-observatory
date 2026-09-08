@@ -150,3 +150,24 @@ async def test_embedding_provider_bad_shape(monkeypatch):
     p = OpenAICompatibleEmbeddingProvider("https://x.ai/v1", "m", "k")
     with pytest.raises(ValueError):
         await p.embed("test")
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_sends_session_and_ua_headers(monkeypatch):
+    monkeypatch.setattr("agent_core.llm.settings.LLM_SESSION_ID", "lumi-test")
+    monkeypatch.setattr("agent_core.llm.settings.LLM_USER_AGENT", "TestUA")
+    captured: dict = {}
+
+    class _CapClient:
+        async def post(self, url, json=None, headers=None):
+            captured["headers"] = headers
+            return _FakeResp(
+                {"choices": [{"message": {"content": "hi", "tool_calls": []}, "finish_reason": "stop"}], "usage": {}}
+            )
+
+    p = OpenAICompatibleProvider("https://x.ai/v1", "m", "k")
+    p._client = _CapClient()
+    await p.chat([LLMMessage("user", "hi")])
+    assert captured["headers"]["x-opencode-session"] == "lumi-test"
+    assert captured["headers"]["User-Agent"] == "TestUA"
+    assert captured["headers"]["Authorization"] == "Bearer k"
