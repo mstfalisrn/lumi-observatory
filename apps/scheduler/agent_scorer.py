@@ -45,6 +45,12 @@ class AgentScorer:
         self._connector = TechnocoreConnector(base_url=self.base_url)
         self._discovered: set[str] = set()
         self._last_react: dict[str, float] = {}
+        # tclk/1 marketplace surveillance rooms (opt-in, parse-only, zero LLM)
+        self._tclk_rooms = (
+            [r.strip() for r in settings.TCLK_MONITOR_ROOMS.split(",") if r.strip()]
+            if settings.TCLK_ENABLED
+            else []
+        )
         # Load the signing key once (scheduler shares the worker DID identity).
         if settings.TECHNOCORE_ENABLED and settings.TECHNOCORE_ED25519_KEY_PATH:
             try:
@@ -289,6 +295,79 @@ class AgentScorer:
                     except Exception:
                         pass
 
+        # 3) tclk/1 task-marketplace surveillance (opt-in, read-only, zero LLM)
+        if self._tclk_rooms:
+            processed += await self._poll_tclk(session)
+
+        return processed
+
+    async def _poll_tclk(self, session) -> int:
+        """Read-only tclk/1 marketplace pass: parse signed-lane frames, persist
+        masked rows, log safe summaries. Zero LLM calls (usage-friendly) and
+        reveal/preimage values are never stored or logged."""
+        from connectors.tclk import parse_frame
+        from observability.models import TclkFrameRow
+
+        processed = 0
+        for room in self._tclk_rooms:
+            try:
+                cursor = await self._connector.get_cursor(f"tclk:{room}", session)
+            except Exception:
+                cursor = 0
+            try:
+                data = await self._connector.read_room(room, since=cursor, wait=2, session=session)
+            except Exception as e:
+                log.debug("tclk read skipped room=%s err=%s", room, type(e).__name__)
+                continue
+            messages = data.get("messages", []) or []
+            max_seq = cursor
+            for m in messages:
+                if not isinstance(m, dict):
+                    continue
+                try:
+                    seq = int(m.get("seq", 0) or 0)
+                except Exception:
+                    seq = 0
+                if seq <= 0:
+                    continue
+                max_seq = max(max_seq, seq)
+                frame = parse_frame(
+                    str(m.get("text", "") or ""),
+                    author=str(m.get("from", "") or m.get("did", "") or ""),
+                    signed=bool(m.get("sig")),
+                )
+                if frame is None:
+                    continue
+                try:
+                    session.add(
+                        TclkFrameRow(
+                            room=room,
+                            seq=seq,
+                            kind=frame.kind,
+                            author=frame.author[:80],
+                            signed=frame.signed,
+                            contract=frame.contract[:80],
+                            ref=frame.ref[:80],
+                            rail=frame.rail[:40],
+                            asset=frame.asset[:20],
+                            amount=frame.amount[:40],
+                            summary=frame.safe_summary()[:300],
+                        )
+                    )
+                    processed += 1
+                    if frame.kind in ("offer", "accept", "lock"):
+                        log.info("tclk %s", frame.safe_summary())
+                except Exception as e:
+                    log.debug("tclk persist skipped room=%s seq=%s %s", room, seq, type(e).__name__)
+            if max_seq > cursor:
+                try:
+                    await self._connector.set_cursor(f"tclk:{room}", max_seq, session)
+                    await session.commit()
+                except Exception:
+                    try:
+                        await session.rollback()
+                    except Exception:
+                        pass
         return processed
 
     async def run_forever(self) -> None:
