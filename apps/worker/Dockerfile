@@ -9,6 +9,7 @@ COPY packages/requirements-worker.txt /srv/lumi/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY packages/ /srv/lumi/
 COPY apps/worker/ /srv/lumi/apps/worker/
+COPY skills/ /srv/skills/
 USER lumi
 EXPOSE 8001
 CMD ["uvicorn", "apps.worker.worker:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1"]
