@@ -25,6 +25,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY packages/ /srv/lumi/
 COPY apps/api/ apps/api/
+COPY skills/ skills/
+COPY skills/ /srv/skills/
 COPY migrations/ migrations/
 
 COPY --from=web-build /web/dist/ /srv/lumi/apps/web/dist/
