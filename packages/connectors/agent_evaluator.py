@@ -224,8 +224,10 @@ async def evaluate_agent_message(
     text = text or ""
     provider = (settings.LLM_PROVIDER or "mock").lower()
 
-    # mock -> heuristic directly (no network)
-    if provider == "mock" or not settings.LLM_BASE_URL:
+    # mock -> heuristic directly (no network). EVALUATOR_LLM_ENABLED=false keeps
+    # lobby surveillance heuristic-only (zero API usage) while agent TASKS still
+    # run on the real LLM provider.
+    if provider == "mock" or not settings.LLM_BASE_URL or not settings.EVALUATOR_LLM_ENABLED:
         res = _heuristic_evaluate(text)
         res["model"] = "heuristic/mock"
         return res

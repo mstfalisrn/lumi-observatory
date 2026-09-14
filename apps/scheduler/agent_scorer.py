@@ -61,6 +61,9 @@ class AgentScorer:
 
     async def poll_once(self, session) -> int:
         if not settings.TECHNOCORE_ENABLED:
+            # tclk marketplace surveillance is independent of lobby surveillance
+            if self._tclk_rooms:
+                return await self._poll_tclk(session)
             return 0
         """Single poll loop. Manages cursors with the given AsyncSession. Returns the number of processed messages."""
         processed = 0
