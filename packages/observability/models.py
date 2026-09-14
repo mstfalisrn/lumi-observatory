@@ -566,3 +566,31 @@ class AgentEvaluation(_UUIDMixin, Base):
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+# ----------------------------------------------------------------------------
+# M3: tclk/1 escrowed task-marketplace observations (read-only surveillance)
+# ----------------------------------------------------------------------------
+class TclkFrameRow(_UUIDMixin, Base):
+    """One tclk/1 frame observed in a monitored marketplace room.
+
+    Masked by design: reveal/preimage values are NEVER persisted (they are the
+    escrow-claim secret). Only the safe summary and structural fields are kept.
+    """
+
+    __tablename__ = "tclk_frames"
+    __table_args__ = (
+        UniqueConstraint("room", "seq", name="uq_tclk_frame_room_seq"),
+        Index("ix_tclk_kind_created", "kind", "created_at"),
+    )
+    room: Mapped[str] = mapped_column(String(64), nullable=False)
+    seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    author: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    signed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # signed lane = commitment
+    contract: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    ref: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    rail: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    asset: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    amount: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    summary: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+

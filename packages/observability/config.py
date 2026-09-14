@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     TECHNOCORE_ROOM_REACT_ENABLED: bool = False  # high-risk → signed warning posted INTO the room (external write)
     TECHNOCORE_ROOM_REACT_INTERVAL: int = 300  # seconds per room
 
+    # tclk/1 escrowed task marketplace (convention-based, signed-lane frames)
+    # Read-only surveillance by default; posting frames stays behind explicit flags.
+    TCLK_ENABLED: bool = False
+    TCLK_MONITOR_ROOMS: str = "tclk-offers,d-blockrewards-feed"
+
     # API host/port (0.0.0.0 inside container; host binding is restricted to 127.0.0.1 via Docker port mapping)
     API_HOST: str = "0.0.0.0"  # nosec B104
     API_PORT: int = 8000
