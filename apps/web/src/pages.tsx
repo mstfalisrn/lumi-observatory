@@ -1262,3 +1262,129 @@ export function AgentsPage() {
     </div>
   )
 }
+
+// ---------- TCLK Market ----------
+type TclkMarketData = {
+  frames_total: number
+  frames_24h: number
+  by_kind_24h: Record<string, number>
+  lock_rails: Record<string, number>
+  completed_claims: { slug: string; locks: number; reveals: number; rail: string }[]
+  real_rail_claims: number
+  monitor_enabled: boolean
+  agent_enabled: boolean
+  claim_radar_enabled: boolean
+  recent: { kind: string; seq: number; room: string; author: string; amount: string; asset: string; rail: string; summary: string; created_at: string }[]
+}
+
+export function TclkMarketPage() {
+  const { data, err, loading, reload } = useFetch<TclkMarketData>('/v1/tclk/market')
+  const kindColor: Record<string, 'outline' | 'secondary' | 'success' | 'destructive' | 'warning' | 'violet'> = {
+    offer: 'violet', accept: 'secondary', lock: 'warning', reveal: 'success', refund: 'destructive', cancel: 'destructive',
+  }
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-bold tracking-tight flex items-center gap-2.5">
+          <span className="h-8 w-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-md"><TrendingUp className="h-4 w-4" /></span>
+          TCLK Market
+        </h1>
+        <div className="flex items-center gap-2">
+          {data && <>
+            <Badge variant={data.agent_enabled ? 'success' : 'secondary'} className="rounded-full">agent {data.agent_enabled ? 'armed' : 'off'}</Badge>
+            <Badge variant={data.claim_radar_enabled ? 'violet' : 'outline'} className="rounded-full">claim radar {data.claim_radar_enabled ? 'on' : 'off'}</Badge>
+          </>}
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={reload}><RefreshCw className="h-4 w-4" /> Refresh</Button>
+        </div>
+      </div>
+
+      {!data ? (
+        loading ? <TableSkeleton rows={3} /> : err ? <Err msg={err} onRetry={reload} /> : null
+      ) : (
+        <>
+          {/* KPI row */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground font-medium">Total frames (DB)</div><div className="text-2xl font-bold mt-1">{data.frames_total.toLocaleString('en-US')}</div></CardContent></Card>
+            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground font-medium">24h frames</div><div className="text-2xl font-bold mt-1">{data.frames_24h.toLocaleString('en-US')}</div></CardContent></Card>
+            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground font-medium">Completed claims (lock+reveal)</div><div className="text-2xl font-bold mt-1">{data.completed_claims.length}</div></CardContent></Card>
+            <Card className="border-emerald-200/50 dark:border-emerald-900/40"><CardContent className="p-4"><div className="text-xs text-muted-foreground font-medium">Real-rail claims (paid)</div><div className="text-2xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{data.real_rail_claims}</div><div className="text-[11px] text-muted-foreground">flop-htlc · x402 · ETH</div></CardContent></Card>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {/* by kind */}
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm">Frames by kind — last 24h</CardTitle><CardDescription>offer → accept → lock → reveal / refund</CardDescription></CardHeader>
+              <CardContent className="space-y-1.5">
+                {Object.entries(data.by_kind_24h).map(([kind, count]) => (
+                  <div key={kind} className="flex items-center gap-2 text-sm">
+                    <Badge variant={kindColor[kind] || 'outline'} className="w-20 justify-center rounded-full text-[10px] uppercase">{kind}</Badge>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-white/5">
+                      <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500" style={{ width: `${data.frames_24h ? Math.max(2, (count / data.frames_24h) * 100) : 0}%` }} />
+                    </div>
+                    <span className="w-16 text-right font-mono text-xs">{count.toLocaleString('en-US')}</span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            {/* lock rails */}
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm">Escrow locks by rail (all-time)</CardTitle><CardDescription>paper = rehearsal, NOT money (per tclk/1 spec)</CardDescription></CardHeader>
+              <CardContent className="space-y-1.5">
+                {Object.entries(data.lock_rails).sort((a,b)=>b[1]-a[1]).map(([rail, count]) => (
+                  <div key={rail} className="flex items-center gap-2 text-sm">
+                    <Badge variant={rail === 'paper' ? 'outline' : rail === 'flop-htlc' ? 'success' : 'warning'} className="rounded-full text-[10px] font-mono">{rail || '(bos)'}</Badge>
+                    <span className="font-mono text-xs text-muted-foreground">{count.toLocaleString('en-US')}</span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* completed claims */}
+          {data.completed_claims.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm">Completed deals (lock + reveal — money moved)</CardTitle></CardHeader>
+              <CardContent className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground border-b"><tr><th className="py-2 text-left font-semibold">Deal slug</th><th className="py-2 text-left font-semibold">Rail</th><th className="py-2 text-right font-semibold">Locks</th><th className="py-2 text-right font-semibold">Reveals</th><th className="py-2 text-right"></th></tr></thead>
+                  <tbody>
+                    {data.completed_claims.slice(0, 12).map((c) => (
+                      <tr key={c.slug} className="border-b last:border-0">
+                        <td className="py-2 font-mono text-xs">mb-p-tclk-{c.slug}</td>
+                        <td className="py-2"><Badge variant={c.rail === 'paper' ? 'outline' : c.rail ? 'success' : 'secondary'} className="rounded-full text-[10px]">{c.rail || '(belirtilmemis)'}</Badge></td>
+                        <td className="py-2 text-right font-mono text-xs">{c.locks}</td>
+                        <td className="py-2 text-right font-mono text-xs">{c.reveals}</td>
+                        <td className="py-2 text-right">{c.rail && c.rail !== 'paper' ? <Badge variant="success" className="rounded-full text-[10px]">PAID</Badge> : <Badge variant="outline" className="rounded-full text-[10px]">prova</Badge>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* recent frames */}
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm">Latest frames (masked — secrets never stored)</CardTitle></CardHeader>
+            <CardContent className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground border-b"><tr><th className="py-2 text-left font-semibold">Zaman</th><th className="py-2 text-left font-semibold">Tür</th><th className="py-2 text-left font-semibold">Detay</th><th className="py-2 text-right font-semibold">seq</th></tr></thead>
+                <tbody>
+                  {data.recent.map((f) => (
+                    <tr key={`${f.room}-${f.seq}`} className="border-b last:border-0">
+                      <td className="py-2 whitespace-nowrap font-mono text-[11px] text-muted-foreground">{f.created_at.slice(11,19)}</td>
+                      <td className="py-2"><Badge variant={kindColor[f.kind] || 'outline'} className="rounded-full text-[10px] uppercase">{f.kind}</Badge></td>
+                      <td className="py-2 max-w-[420px] truncate font-mono text-[11px] text-muted-foreground" title={f.summary}>{f.summary}</td>
+                      <td className="py-2 text-right font-mono text-[11px] text-muted-foreground">{f.seq}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  )
+}

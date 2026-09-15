@@ -921,6 +921,91 @@ async def technocore_status(user: dict = Depends(get_current_user)):
             "room_claim": settings.TECHNOCORE_ROOM_CLAIM, "registered": False}
 
 
+@app.get("/api/v1/tclk/market")
+async def tclk_market(user: dict = Depends(get_current_user)):
+    """Read-only tclk/1 market summary — masked rows only, never reveal/preimage values."""
+    _ = user
+    from observability.models import TclkFrameRow
+
+    async with async_session_factory() as s:
+        total = (await s.execute(select(func.count()).select_from(TclkFrameRow))).scalar() or 0
+        since = datetime.now(UTC) - timedelta(hours=24)
+        k24 = (
+            await s.execute(
+                select(TclkFrameRow.kind, func.count())
+                .where(TclkFrameRow.created_at >= since)
+                .group_by(TclkFrameRow.kind)
+            )
+        ).all()
+        by_kind = {"offer": 0, "accept": 0, "lock": 0, "reveal": 0, "refund": 0, "cancel": 0}
+        by_kind.update({str(k): int(c) for k, c in k24})
+        rails = (
+            await s.execute(
+                select(TclkFrameRow.rail, func.count())
+                .where(TclkFrameRow.kind == "lock")
+                .group_by(TclkFrameRow.rail)
+            )
+        ).all()
+        lock_rails = {str(r or "(bos)"): int(c) for r, c in rails}
+        # Completed claims: deal slug = first 16 hex of the contract id (same
+        # derivation as deal rooms) appearing with BOTH a lock and a reveal.
+        slug = func.left(func.replace(func.lower(TclkFrameRow.contract), "0x", ""), 16)
+        comp = (
+            await s.execute(
+                select(
+                    slug.label("s"),
+                    func.count().filter(TclkFrameRow.kind == "lock").label("locks"),
+                    func.count().filter(TclkFrameRow.kind == "reveal").label("reveals"),
+                    func.max(TclkFrameRow.rail).filter(TclkFrameRow.kind == "lock").label("rail"),
+                )
+                .where(TclkFrameRow.kind.in_(("lock", "reveal")), TclkFrameRow.contract.isnot(None))
+                .group_by(slug)
+                .having(
+                    func.count().filter(TclkFrameRow.kind == "lock") >= 1,
+                    func.count().filter(TclkFrameRow.kind == "reveal") >= 1,
+                )
+            )
+        ).all()
+        claims = [
+            {
+                "slug": str(c[0]) if c[0] else "",
+                "locks": int(c[1]),
+                "reveals": int(c[2]),
+                "rail": str(c[3] or ""),
+            }
+            for c in comp
+        ]
+        real_rails = {"flop-htlc", "x402", "ETH", "clk-htlc", "btc-ptlc"}
+        recent = (
+            await s.execute(select(TclkFrameRow).order_by(TclkFrameRow.created_at.desc()).limit(15))
+        ).scalars().all()
+        return {
+            "frames_total": int(total),
+            "frames_24h": sum(by_kind.values()),
+            "by_kind_24h": by_kind,
+            "lock_rails": lock_rails,
+            "completed_claims": claims,
+            "real_rail_claims": sum(1 for c in claims if c["rail"] in real_rails),
+            "monitor_enabled": settings.TCLK_ENABLED,
+            "agent_enabled": settings.TCLK_AGENT_ENABLED,
+            "claim_radar_enabled": settings.TCLK_CLAIM_RADAR_ENABLED,
+            "recent": [
+                {
+                    "kind": f.kind,
+                    "seq": f.seq,
+                    "room": f.room,
+                    "author": f.author[:40],
+                    "amount": f.amount,
+                    "asset": f.asset,
+                    "rail": f.rail,
+                    "summary": f.summary,
+                    "created_at": f.created_at.isoformat(),
+                }
+                for f in recent
+            ],
+        }
+
+
 class LLMTestRequest(BaseModel):
     provider: str = "mock"
     base_url: str = ""
