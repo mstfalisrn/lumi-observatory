@@ -1,8 +1,17 @@
 """tclk/1 frame parser/builder/validation tests."""
 
+import hashlib
+
 from connectors.tclk import (
+    build_accept,
     build_offer,
+    build_reveal,
+    new_hashlock,
+    offer_allows,
+    offer_expired,
     parse_frame,
+    ref_matches,
+    spec_short,
     validate_frame,
 )
 
@@ -71,3 +80,91 @@ def test_build_offer_roundtrip():
     assert f.asset == "FLOP"
     assert f.rail == "flop-htlc"
     assert validate_frame(f) == []
+
+
+# --- safe-agent additions -------------------------------------------------
+
+
+def test_new_hashlock_statement_matches_preimage():
+    preimage, statement = new_hashlock()
+    assert preimage.startswith("0x") and len(preimage) == 66  # 32 bytes hex
+    assert statement.startswith("0x") and len(statement) == 66
+    # the statement must be sha256 of the raw preimage bytes
+    assert statement == f"0x{hashlib.sha256(bytes.fromhex(preimage[2:])).hexdigest()}"
+    # two mints never collide
+    assert new_hashlock()[1] != statement
+
+
+def test_build_accept_and_reveal_roundtrip():
+    a = parse_frame(build_accept("0xabc123abc123abc1", "0x" + "11" * 32))
+    assert a is not None and a.kind == "accept"
+    assert a.ref == "0xabc123abc123abc1"
+    assert validate_frame(a) == []
+    r = parse_frame(build_reveal("0x" + "22" * 32))
+    assert r is not None and r.kind == "reveal"
+    assert validate_frame(r) == []
+    # the reveal secret is never part of the masked summary
+    assert "22" * 32 not in r.safe_summary()
+
+
+def test_offer_allows_gating():
+    rails, cap, pat = "flop-htlc,x402", "1000000", "market,scan,digest"
+    good = parse_frame(
+        'tclk1 {"type":"offer","amount":"800","asset":"FLOP","rail":"flop-htlc",'
+        '"nonce":"aa11","spec":"scan tclk-offers and report stats"}',
+        signed=True,
+    )
+    ok, why = offer_allows(good, rails, cap, pat)
+    assert ok, why
+
+    # unsigned offer is never a commitment
+    assert offer_allows(parse_frame(good.raw, signed=False), rails, cap, pat)[0] is False
+    # rail not allowed
+    eth = parse_frame('tclk1 {"type":"offer","amount":"800","asset":"ETH","rail":"ETH","nonce":"b1","spec":"scan"}')
+    assert offer_allows(eth, rails, cap, pat)[0] is False
+    # over the amount cap
+    big = parse_frame('tclk1 {"type":"offer","amount":"5000000","asset":"FLOP","rail":"flop-htlc","nonce":"b2","spec":"scan"}')
+    assert offer_allows(big, rails, cap, pat)[0] is False
+    # task outside our capabilities
+    other = parse_frame('tclk1 {"type":"offer","amount":"800","asset":"FLOP","rail":"flop-htlc","nonce":"b3","spec":"paint a mural"}')
+    assert offer_allows(other, rails, cap, pat)[0] is False
+    # unparseable amount fails closed
+    bad = parse_frame('tclk1 {"type":"offer","amount":"lots","asset":"FLOP","rail":"flop-htlc","nonce":"b4","spec":"scan"}')
+    assert offer_allows(bad, rails, cap, pat)[0] is False
+
+
+def test_offer_expired_conservative():
+    fresh = parse_frame('tclk1 {"type":"offer","amount":"1","asset":"FLOP","nonce":"d1"}')
+    assert offer_expired(fresh) is False  # no deadline field → not expired
+    past = parse_frame('tclk1 {"type":"offer","amount":"1","asset":"FLOP","nonce":"d2","expiresMs":"1700000000000"}')
+    assert offer_expired(past) is True
+    future_ms = int(__import__("time").time() * 1000) + 3_600_000
+    soon = parse_frame(f'tclk1 {{"type":"offer","amount":"1","asset":"FLOP","nonce":"d3","expiresMs":"{future_ms}"}}')
+    assert offer_expired(soon) is False
+
+
+def test_ref_matches_normalizes_and_guards_short_values():
+    assert ref_matches("0xABCDEF0123456789", "abcdef0123456789") is True
+    # suffix overlap of >=12 hex chars matches (lock refs may be truncated ids)
+    assert ref_matches("0x" + "aa" * 20, "aa" * 12) is True
+    assert ref_matches("0xdeadbeef", "0xdeadbeef") is True
+    assert ref_matches("", "0xdeadbeef") is False
+    assert ref_matches("0x" + "aa" * 20, "bb" * 12) is False
+    # short values must not match by suffix (avoid false positives)
+    assert ref_matches("0xaa11", "aa11") is True  # exact match is allowed
+    assert ref_matches("0xffaa11", "aa11") is False  # too short for suffix rule
+
+
+def test_lock_and_reveal_derive_same_deal_room():
+    """The claim radar pairs lock+reveal by derived deal room — that equality is the core assumption."""
+    lock = parse_frame('tclk1 {"type":"lock","contract":"0xaabbccddeeff00112233","rail":"flop-htlc","ref":"r1"}')
+    reveal = parse_frame('tclk1 {"type":"reveal","contract":"0xaabbccddeeff00112233445566778899","secret":"0x00"}')
+    assert lock.deal_room() == reveal.deal_room() == "mb-p-tclk-aabbccddeeff0011"
+
+
+def test_spec_short_never_leaks_and_truncates():
+    f = parse_frame('tclk1 {"type":"offer","amount":"1","asset":"FLOP","spec":"scan MARKET and digest it"}')
+    s = spec_short(f)
+    assert s == "scan market and digest it"
+    long = parse_frame('tclk1 {"type":"offer","amount":"1","asset":"FLOP","spec":"' + "x" * 200 + '"}')
+    assert len(spec_short(long)) == 48

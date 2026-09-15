@@ -51,6 +51,24 @@ class AgentScorer:
             if settings.TCLK_ENABLED
             else []
         )
+        # tclk claim radar + safe agent state (in-memory ONLY; preimages never persisted)
+        self._tclk_claim_rails = {
+            r.strip() for r in settings.TCLK_AGENT_RAILS.split(",") if r.strip()
+        }
+        self._tclk_lock_rail: dict[str, str] = {}  # deal slug -> rail (from lock frames)
+        self._tclk_claimed: set[str] = set()  # slugs already reported
+        self._tclk_active: dict[str, dict] = {}  # ref -> pending accept (preimage in memory)
+        self._tclk_seen: set[str] = set()  # offer identities already considered
+        self._tclk_agent_armed = bool(
+            settings.TCLK_ENABLED and settings.TCLK_AGENT_ENABLED and getattr(self._connector, "did_public", "")
+        )
+        if self._tclk_agent_armed:
+            log.info(
+                "tclk agent mode armed (DID %s…) rails=%s max_active=%d",
+                getattr(self._connector, "did_public", "")[:12],
+                settings.TCLK_AGENT_RAILS,
+                settings.TCLK_AGENT_MAX_ACTIVE,
+            )
         # Load the signing key once (scheduler shares the worker DID identity).
         if settings.TECHNOCORE_ENABLED and settings.TECHNOCORE_ED25519_KEY_PATH:
             try:
@@ -362,6 +380,27 @@ class AgentScorer:
                         log.info("tclk %s", frame.safe_summary())
                 except Exception as e:
                     log.debug("tclk persist skipped room=%s seq=%s %s", room, seq, type(e).__name__)
+                # --- Post-persist actions (opt-in): claim radar + safe agent mode ---
+                dr = frame.deal_room()
+                slug16 = dr[len("mb-p-tclk-"):] if dr else ""
+                if slug16 and (self._tclk_agent_armed or settings.TCLK_CLAIM_RADAR_ENABLED):
+                    try:
+                        if frame.kind == "lock":
+                            rail = frame.rail
+                            if rail:
+                                self._tclk_lock_rail[slug16] = rail
+                            if self._tclk_agent_armed:
+                                await self._tclk_on_lock(session, slug16, frame)
+                        elif frame.kind == "reveal":
+                            rail = self._tclk_lock_rail.get(slug16, "")
+                            if settings.TCLK_CLAIM_RADAR_ENABLED and rail in self._tclk_claim_rails and slug16 not in self._tclk_claimed:
+                                self._tclk_claimed.add(slug16)
+                                ours = any(p.get("slug") == slug16 for p in self._tclk_active.values())
+                                await self._tclk_alert_claim(slug16, rail, ours=ours)
+                        elif frame.kind == "offer" and self._tclk_agent_armed:
+                            await self._tclk_on_offer(session, frame)
+                    except Exception as e:
+                        log.warning("tclk action failed kind=%s seq=%s: %s", frame.kind, seq, type(e).__name__)
             if max_seq > cursor:
                 try:
                     await self._connector.set_cursor(f"tclk:{room}", max_seq, session)
@@ -372,6 +411,126 @@ class AgentScorer:
                     except Exception:
                         pass
         return processed
+
+    # --- tclk/1 safe agent: accept → verify lock → inline task → reveal ---
+    async def _tclk_on_offer(self, session, frame) -> None:
+        from connectors.tclk import build_accept, new_hashlock, offer_allows
+
+        ok, why = offer_allows(
+            frame,
+            settings.TCLK_AGENT_RAILS,
+            settings.TCLK_AGENT_MAX_AMOUNT,
+            settings.TCLK_AGENT_TASK_PATTERNS,
+        )
+        if not ok:
+            log.info("tclk offer skipped: %s", why)
+            return
+        if _offer_expired(frame):
+            log.info("tclk offer skipped: expired")
+            return
+        if len(self._tclk_active) >= settings.TCLK_AGENT_MAX_ACTIVE:
+            log.info("tclk agent busy (%d active)", len(self._tclk_active))
+            return
+        nonce = str(frame.data.get("nonce", "") or "")
+        if not nonce:
+            return
+        key = f"{frame.author}|{nonce}"
+        if key in self._tclk_seen:
+            return
+        self._tclk_seen.add(key)
+        preimage, statement = new_hashlock()
+        ref = nonce if nonce.startswith("0x") else f"0x{nonce}"
+        self._tclk_active[ref] = {
+            "ref": ref,
+            "slug": "",
+            "preimage": preimage,
+            "statement": statement,
+            "accepted_at": time.time(),
+            "amount": frame.amount,
+            "asset": frame.asset,
+            "offer_author": frame.author[:40],
+            "locked": False,
+            "spec": _tclk_spec_short(frame),
+        }
+        try:
+            await self._connector.signed_post(self._tclk_rooms[0], build_accept(ref, statement))
+            log.info("tclk agent ACCEPT posted ref=%s amount=%s %s", ref, frame.amount, frame.asset)
+            from connectors.agent_alert import send_telegram_text
+
+            await send_telegram_text(
+                f"🤝 LUMI tclk görevi kabul etti: {frame.amount} {frame.asset or '?'} — "
+                f"ref {ref}, iş: {_tclk_spec_short(frame)}"
+            )
+        except Exception as e:
+            log.warning("tclk accept post failed: %s", type(e).__name__)
+            self._tclk_active.pop(ref, None)
+
+    async def _tclk_on_lock(self, session, slug16, frame) -> None:
+        for ref, p in list(self._tclk_active.items()):
+            if p.get("locked") or p.get("slug"):
+                continue
+            if not _ref_matches(ref, frame.ref) and not _ref_matches(p.get("ref", ""), frame.ref):
+                continue
+            if frame.rail not in self._tclk_claim_rails:
+                log.info("tclk lock rail rejected: %s", frame.rail)
+                continue
+            p["locked"] = True
+            p["slug"] = slug16
+            await self._tclk_do_task_and_reveal(session, slug16, p)
+            return
+
+    async def _tclk_do_task_and_reveal(self, session, slug16, pending) -> None:
+        from connectors.tclk import build_reveal
+
+        deal_room = f"mb-p-tclk-{slug16}"
+        digest = await self._tclk_digest(session)
+        log.info("tclk agent task done (inline, zero-LLM): deal=%s payload=%s", deal_room, digest[:120])
+        try:
+            await self._connector.signed_post(deal_room, build_reveal(str(pending["preimage"])))
+            log.info("tclk agent REVEAL posted deal=%s ref=%s", deal_room, pending["ref"])
+            from connectors.agent_alert import send_telegram_text
+
+            await send_telegram_text(
+                f"💰 LUMI görevi tamamladı + escrow claim: {pending['amount']} "
+                f"{pending['asset'] or '?'} — deal odası {deal_room}"
+            )
+        except Exception as e:
+            log.warning("tclk reveal post failed: %s", type(e).__name__)
+
+    async def _tclk_digest(self, session) -> str:
+        """Zero-LLM 24h tclk market digest — from our own DB, no network calls."""
+        try:
+            from sqlalchemy import func, select, text
+
+            from observability.models import TclkFrameRow
+
+            rows = (
+                await session.execute(
+                    select(TclkFrameRow.kind, func.count())
+                    .where(
+                        TclkFrameRow.created_at
+                        >= func.now() - text("interval '24 hours'")
+                    )
+                    .group_by(TclkFrameRow.kind)
+                )
+            ).all()
+            parts = " ".join(f"{k}={c}" for k, c in sorted(rows, key=lambda r: -r[1]))
+            return f"24h tclk: {parts or 'veri yok'}"
+        except Exception as e:
+            log.debug("tclk digest failed: %s", type(e).__name__)
+            return "24h tclk: veri yok"
+
+    async def _tclk_alert_claim(self, slug16, rail, ours: bool = False) -> None:
+        from connectors.agent_alert import send_telegram_text
+
+        who = "LUMI kendi görevi" if ours else "dış ajan"
+        msg = (
+            f"🏁 tclk CLAIM RADAR: *{rail}* rail'inde gerçek ödeme tamamlandı "
+            f"({who}) — deal odası `mb-p-tclk-{slug16}`"
+        )
+        ok = await send_telegram_text(msg)
+        if ok and ours:
+            self._tclk_active = {k: v for k, v in self._tclk_active.items() if v.get("slug") != slug16}
 
     async def run_forever(self) -> None:
         """Interval 15s loop — run via create_task at scheduler startup."""
@@ -384,3 +543,22 @@ class AgentScorer:
             except Exception as e:
                 log.warning("agent_scorer loop error: %s", type(e).__name__)
             await asyncio.sleep(self.interval)
+
+
+# --- tclk/1 safe-agent helpers (thin wrappers over connectors.tclk) ---
+def _ref_matches(a: str, b: str) -> bool:
+    from connectors.tclk import ref_matches
+
+    return ref_matches(a, b)
+
+
+def _offer_expired(frame) -> bool:
+    from connectors.tclk import offer_expired
+
+    return offer_expired(frame)
+
+
+def _tclk_spec_short(frame) -> str:
+    from connectors.tclk import spec_short
+
+    return spec_short(frame)

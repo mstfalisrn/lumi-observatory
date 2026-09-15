@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import secrets
 from dataclasses import dataclass
 from typing import Any
 
@@ -185,3 +187,125 @@ def build_offer(amount: str, asset: str, nonce: str, spec: str = "", rail: str =
     if rail:
         fields["rail"] = rail
     return build_frame("offer", **fields)
+
+
+def new_hashlock() -> tuple[str, str]:
+    """Mint a preimage + its sha256 statement (hex). The preimage is the claim
+    secret: keep it ONLY in memory, never persist/log it. Statement is public."""
+    import hashlib
+
+    preimage = secrets.token_bytes(32)
+    statement = f"0x{hashlib.sha256(preimage).hexdigest()}"
+    return f"0x{preimage.hex()}", statement
+
+
+def build_accept(ref: str, statement: str) -> str:
+    """Signed-lane accept frame: ref = the offer id we commit to, statement = our hashlock."""
+    return build_frame("accept", ref=ref, contract="", statement=statement)
+
+
+def build_reveal(secret: str) -> str:
+    """Revealing the preimage IS the claim — publish only after we verified a lock."""
+    return build_frame("reveal", secret=secret)
+
+
+def offer_spec(frame: TclkFrame) -> str:
+    """Normalized task description of an offer (spec/task/desc fields), lowercase."""
+    if frame.kind != "offer":
+        return ""
+    d = frame.data
+    spec = str(d.get("spec", "") or d.get("task", "") or d.get("desc", "") or "")
+    return re.sub(r"[^a-z0-9 ,._-]", " ", spec.lower())
+
+
+def spec_short(frame: TclkFrame) -> str:
+    """Short normalized spec for logs/alerts (never includes secrets)."""
+    s = offer_spec(frame)
+    return s[:48] if s else "(spec yok)"
+
+
+def ref_matches(a: str, b: str) -> bool:
+    """Loose reference match: equal, or >=12-hex suffix overlap (normalized)."""
+    def norm(x: str) -> str:
+        x = str(x or "").strip().lower()
+        return x[2:] if x.startswith("0x") else x
+
+    a, b = norm(a), norm(b)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if len(a) >= 12 and len(b) >= 12 and (a.endswith(b) or b.endswith(a)):
+        return True
+    return False
+
+
+def offer_expired(frame: TclkFrame) -> bool:
+    """True if the offer carries an expiry timestamp in the past (conservative skip).
+
+    tclk/1 deadlines are millisecond epochs (claimByMs / refundAfterMs / expiresMs);
+    a value that looks like seconds simply fails the comparison and is skipped,
+    which is the safe direction."""
+    try:
+        import time as _t
+
+        now_ms = _t.time() * 1000.0
+        for key in ("expiresMs", "expires", "expires_at"):
+            v = frame.data.get(key)
+            if v:
+                try:
+                    v = float(v)
+                except (TypeError, ValueError):
+                    continue
+                if v < now_ms:
+                    return True
+    except Exception:
+        return False
+    return False
+
+ALLOW_RAIL_DEFAULT = "flop-htlc"
+
+
+def offer_allows(frame: TclkFrame, allowed_rails: str, max_amount: str, patterns: str) -> tuple[bool, str]:
+    """Safe gating BEFORE we commit to an offer.
+
+    Returns (ok, reason). Accept path is only for signed offers whose rail (or
+    FLOP-asset default) is escrow-bearing, amount is bounded, and whose task
+    spec matches capabilities we can actually fulfill (zero-LLM inline for now).
+    Everything ambiguous → skip (a skipped offer costs nothing; a wrong accept
+    can cost an escrow)."""
+    if frame.kind != "offer":
+        return False, "not an offer"
+    if not frame.signed:
+        return False, "unsigned offer is data, not a commitment"
+    d = frame.data
+    rails = {r.strip() for r in (allowed_rails or "").split(",") if r.strip()}
+    if not rails:
+        return False, "no rails configured"
+    rail = str(d.get("rail", "") or "")
+    if rail and rail not in rails:
+        return False, f"rail not allowed: {rail}"
+    if not rail:
+        asset = str(d.get("asset", "") or "").upper()
+        if asset == "FLOP" and ALLOW_RAIL_DEFAULT not in rails:
+            return False, "flop offers disabled"
+        if asset not in ("FLOP", "") and not rail:
+            return False, f"no rail and non-FLOP asset: {asset}"
+    try:
+        amount = int(str(d.get("amount", "0") or 0))
+    except ValueError:
+        return False, "unparseable amount"
+    if amount <= 0:
+        return False, "non-positive amount"
+    max_a = int(max_amount or 0) or 1_000_000
+    if amount > max_a:
+        return False, f"amount {amount} over cap {max_a}"
+    want = {w.strip() for w in (patterns or "").split(",") if w.strip()}
+    if not want:
+        return False, "no capability patterns configured"
+    spec = offer_spec(frame)
+    # spec is usually a compact blob like "scan tclk-offers and report stats";
+    # accept when ANY capability keyword appears in it.
+    if not any(w in spec for w in want):
+        return False, f"task not in capabilities: {spec[:60] or '(bos)'}"
+    return True, "ok"

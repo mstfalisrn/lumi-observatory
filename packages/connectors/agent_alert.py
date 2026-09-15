@@ -250,3 +250,76 @@ async def send_risk_alert(evaluation: Any) -> bool:
         except Exception:
             pass
         return False
+
+
+async def send_telegram_text(text: str) -> bool:
+    """Send an arbitrary message to the allowed Telegram identities (owner DMs).
+
+    Used by the tclk claim radar and agent-status alerts — same allowlist and
+    delivery path as risk alerts, but without any tier filter. True on success,
+    False on no recipients / no token / delivery failure.
+    """
+    if not text:
+        return False
+    try:
+        from observability import models as _models
+        from observability.config import settings as _settings
+        from observability.db import async_session_factory as _session_factory
+
+        token = getattr(_settings, "TELEGRAM_BOT_TOKEN", "") or ""
+        if not token:
+            log.debug("telegram text skipped: TELEGRAM_BOT_TOKEN empty")
+            return False
+        recipients: set[int] = set()
+        try:
+            recipients.update(int(x) for x in getattr(_settings, "allowed_user_ids", []) or [])
+        except Exception:
+            pass
+        try:
+            async with _session_factory() as _s:
+                from sqlalchemy import select as _select
+
+                res = await _s.execute(
+                    _select(_models.TelegramIdentity.telegram_user_id).where(
+                        _models.TelegramIdentity.is_allowed.is_(True)
+                    )
+                )
+                for row in res.scalars().all():
+                    try:
+                        recipients.add(int(row))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        if not recipients:
+            log.warning("telegram text: no recipients (allowlist empty)")
+            return False
+        import httpx as _httpx
+
+        ok_any = False
+        for uid in recipients:
+            try:
+                async with _httpx.AsyncClient(timeout=10) as _client:
+                    r = await _client.post(
+                        f"https://api.telegram.org/bot{token}/sendMessage",
+                        json={
+                            "chat_id": uid,
+                            "text": text,
+                            "parse_mode": "Markdown",
+                            "disable_web_page_preview": True,
+                        },
+                    )
+                    if r.status_code == 200 and r.json().get("ok"):
+                        ok_any = True
+                    else:
+                        log.warning("telegram text http %s: %s", r.status_code, r.text[:200])
+            except Exception as e:
+                log.warning("telegram text HTTP error uid=%s: %s", uid, type(e).__name__)
+        if ok_any:
+            log.info("telegram text sent (%d recipients): %.90s", len(recipients), text)
+            return True
+        log.warning("telegram text could not reach recipients (fallback log): %.90s", text)
+        return False
+    except Exception as e:
+        log.warning("telegram text failed (%s): %.90s", type(e).__name__, text)
+        return False
