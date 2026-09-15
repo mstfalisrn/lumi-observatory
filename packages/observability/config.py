@@ -106,6 +106,16 @@ class Settings(BaseSettings):
     # Read-only surveillance by default; posting frames stays behind explicit flags.
     TCLK_ENABLED: bool = False
     TCLK_MONITOR_ROOMS: str = "tclk-offers,d-blockrewards-feed"
+    # TCLK agent mode: LUMI may ACT on capable offers (accept → verify lock → reveal).
+    # Opt-in on purpose: accepting is a commitment; reveal pays out from the escrow.
+    TCLK_AGENT_ENABLED: bool = False
+    TCLK_AGENT_MAX_AMOUNT: str = "1000000"  # skip offers above this unit count
+    TCLK_AGENT_RAILS: str = "flop-htlc,x402"  # only escrow-bearing rails we will work on
+    TCLK_AGENT_MAX_ACTIVE: int = 2  # concurrent accepted contracts (memory-held secrets)
+    TCLK_AGENT_TASK_PATTERNS: str = "market,scan,digest,report,summary,stats,read,observe"
+    # Claim radar: notify the owner the first time a locked deal on a real rail actually
+    # completes (reveal posted) — i.e. the first real payout LUMI observes.
+    TCLK_CLAIM_RADAR_ENABLED: bool = True
 
     # Lobby surveillance LLM toggle: false = heuristic-only evaluation (no API
     # usage) while agent TASKS still use the real LLM provider.
