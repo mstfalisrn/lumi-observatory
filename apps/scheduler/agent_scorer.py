@@ -59,8 +59,19 @@ class AgentScorer:
         self._tclk_claimed: set[str] = set()  # slugs already reported
         self._tclk_active: dict[str, dict] = {}  # ref -> pending accept (preimage in memory)
         self._tclk_seen: set[str] = set()  # offer identities already considered
+        self._tclk_agent_armed = False  # set after the DID key loads (below)
+        # Load the signing key once (scheduler shares the worker DID identity).
+        if settings.TECHNOCORE_ENABLED and settings.TECHNOCORE_ED25519_KEY_PATH:
+            try:
+                self._connector.load_or_generate_key(settings.TECHNOCORE_ED25519_KEY_PATH)
+                log.info("technocore DID ready: %s", getattr(self._connector, "did_public", ""))
+            except Exception as e:
+                log.warning("technocore key load failed: %s", str(e)[:150])
+        # Agent mode arms only once the DID identity is actually loaded.
         self._tclk_agent_armed = bool(
-            settings.TCLK_ENABLED and settings.TCLK_AGENT_ENABLED and getattr(self._connector, "did_public", "")
+            settings.TCLK_ENABLED
+            and settings.TCLK_AGENT_ENABLED
+            and getattr(self._connector, "did_public", "")
         )
         if self._tclk_agent_armed:
             log.info(
@@ -69,13 +80,6 @@ class AgentScorer:
                 settings.TCLK_AGENT_RAILS,
                 settings.TCLK_AGENT_MAX_ACTIVE,
             )
-        # Load the signing key once (scheduler shares the worker DID identity).
-        if settings.TECHNOCORE_ENABLED and settings.TECHNOCORE_ED25519_KEY_PATH:
-            try:
-                self._connector.load_or_generate_key(settings.TECHNOCORE_ED25519_KEY_PATH)
-                log.info("technocore DID ready: %s", getattr(self._connector, "did_public", ""))
-            except Exception as e:
-                log.warning("technocore key load failed: %s", str(e)[:150])
 
     async def poll_once(self, session) -> int:
         if not settings.TECHNOCORE_ENABLED:
