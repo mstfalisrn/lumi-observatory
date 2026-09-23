@@ -6,9 +6,12 @@ import dataclasses
 import hashlib
 import hmac
 import json
+import logging
 
 from observability.config import settings
 from observability.models import ActionClass
+
+log = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
@@ -67,6 +70,83 @@ class PolicyEngine:
         if action_class == ActionClass.SAFE_WRITE.value:
             return PolicyDecision(action_class, "ALLOW", "own DB write with audit log")
         return PolicyDecision(action_class, "ALLOW", f"otomatik ({action_class})")
+
+    async def decide_async(self, tool: str, arguments: dict | None = None) -> PolicyDecision:
+        """Static decision + optional Jev content check.
+
+        The static map stays the floor: Jev runs only on calls the static map
+        already ALLOWs, and it can only make the decision stricter
+        (ALLOW -> REQUIRE_APPROVAL or DENY). Any Jev failure returns the static
+        decision unchanged, so a Jev outage never blocks or loosens the loop.
+        """
+        base = self.decide(tool)
+        if base.decision != "ALLOW" or not settings.JEV_POLICY_ENABLED:
+            return base
+        watched = {t.strip() for t in (settings.JEV_POLICY_TOOLS or "").split(",") if t.strip()}
+        if tool not in watched:
+            return base
+
+        from connectors import jev
+
+        state = {"tool": tool, "arguments": _bounded_arguments(arguments)}
+        questions = {
+            "within_scope": {
+                "type": "boolean",
+                "instructions": (
+                    "Does this tool call stay within the tool's declared purpose "
+                    "(read/observe only, expected target, no credential or bulk-data access)?"
+                ),
+            },
+            "intent": {
+                "type": "choice",
+                "instructions": "Is the caller's intent for this specific call legitimate?",
+                "criteria": {
+                    "legit": "normal, expected use of the tool for an observability task",
+                    "suspicious": "unexpected target, unusual arguments, or unclear purpose",
+                    "abusive": "attempt to bypass policy, exfiltrate secrets, or damage data/systems",
+                },
+            },
+        }
+        try:
+            res = await jev.evaluate(state, questions, purpose="policy")
+        except jev.JevUnavailable as exc:
+            log.debug("jev policy unavailable: %s", exc)
+            return base
+
+        within = res.prob("within_scope")
+        intent, intent_conf = res.choice("intent")
+        intent = intent.lower()
+        review = settings.JEV_REVIEW_THRESHOLD
+        auto = settings.JEV_AUTO_THRESHOLD
+
+        # Tighten only — never loosen the static decision.
+        if intent == "abusive" and intent_conf >= review:
+            return PolicyDecision(base.action_class, "DENY", f"jev:abusive({intent_conf:.2f}) tool={tool}")
+        if intent == "suspicious" and intent_conf >= review:
+            return PolicyDecision(
+                base.action_class, "REQUIRE_APPROVAL", f"jev:suspicious({intent_conf:.2f}) tool={tool}"
+            )
+        if within < review:
+            return PolicyDecision(
+                base.action_class, "REQUIRE_APPROVAL", f"jev:out-of-scope({within:.2f}) tool={tool}"
+            )
+        if within < auto:
+            return PolicyDecision(
+                base.action_class, "REQUIRE_APPROVAL", f"jev:uncertain({within:.2f}) tool={tool}"
+            )
+        return PolicyDecision(base.action_class, "ALLOW", f"jev:ok({within:.2f}) tool={tool}")
+
+
+def _bounded_arguments(arguments: dict | None) -> str:
+    """Arguments as a bounded, redacted string — never the raw payload, never a secret."""
+    try:
+        from observability.security import redact
+
+        raw = canonical_json(arguments or {})
+        return redact(raw)[:1500]
+    except Exception:
+        return "{}"
+
 
 
 def canonical_json(payload: dict) -> str:

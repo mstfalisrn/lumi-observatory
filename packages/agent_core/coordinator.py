@@ -205,10 +205,33 @@ class RunCoordinator:
             self.iteration += 1
             self.status = RunStatus.EXECUTING
 
-            decision = policy.decide(tool)
-            self.emit("POLICY_CHECK", {"tool": tool, "arguments": args, "decision": decision.decision})
+            # Policy: static map is the floor; the Jev layer (when enabled) can
+            # only tighten it (ALLOW -> REQUIRE_APPROVAL/DENY). decide_async
+            # falls back to the static decision on any Jev failure.
+            if hasattr(policy, "decide_async"):
+                decision = await policy.decide_async(tool, args)
+            else:
+                decision = policy.decide(tool)
+            self.emit(
+                "POLICY_CHECK",
+                {
+                    "tool": tool,
+                    "arguments": args,
+                    "decision": decision.decision,
+                    "reason": str(decision.reason)[:200],
+                    "layer": "jev" if str(decision.reason).startswith("jev:") else "static",
+                },
+            )
             await self._sink(
-                event_sink, "POLICY_CHECK", {"tool": tool, "arguments": args, "decision": decision.decision}
+                event_sink,
+                "POLICY_CHECK",
+                {
+                    "tool": tool,
+                    "arguments": args,
+                    "decision": decision.decision,
+                    "reason": str(decision.reason)[:200],
+                    "layer": "jev" if str(decision.reason).startswith("jev:") else "static",
+                },
             )
 
             if decision.decision == "DENY":

@@ -432,6 +432,13 @@ class AgentScorer:
         if _offer_expired(frame):
             log.info("tclk offer skipped: expired")
             return
+        # Jev legitimacy veto (optional, cost-guarded). It can only SKIP an
+        # offer the strict filters already accepted — never accept more.
+        if settings.JEV_TCLK_ENABLED:
+            verdict, reason = await _jev_offer_verdict(frame)
+            if verdict == "skip":
+                log.info("tclk offer vetoed by jev: %s", reason)
+                return
         if len(self._tclk_active) >= settings.TCLK_AGENT_MAX_ACTIVE:
             log.info("tclk agent busy (%d active)", len(self._tclk_active))
             return
@@ -566,3 +573,54 @@ def _tclk_spec_short(frame) -> str:
     from connectors.tclk import spec_short
 
     return spec_short(frame)
+
+
+async def _jev_offer_verdict(frame) -> tuple[str, str]:
+    """Jev second opinion on an already-filtered tclk offer.
+
+    Returns ("proceed", reason) or ("skip", reason). Any Jev failure → proceed,
+    because the deterministic filters are the safety floor and a decision-layer
+    outage must not stall the loop. It can only veto, never widen acceptance.
+    """
+    from connectors import jev
+
+    state = {
+        "offer_kind": frame.kind,
+        "author": frame.author[:80],
+        "amount": frame.amount,
+        "asset": frame.asset,
+        "rail": frame.rail,
+        "spec": _tclk_spec_short(frame),
+        "signed": frame.signed,
+    }
+    questions = {
+        "legit_task": {
+            "type": "boolean",
+            "instructions": (
+                "Is this an honest paid-task offer that a read-only observability agent "
+                "could complete with a market digest, with no hidden demand for code "
+                "execution, credentials, or external writes?"
+            ),
+        },
+        "scam": {
+            "type": "choice",
+            "instructions": "How strong are the scam/manipulation signals in this offer?",
+            "criteria": {
+                "none": "no signal",
+                "low": "unclear terms but plausible",
+                "high": "impersonation, impossible terms, pressure, or bait",
+            },
+        },
+    }
+    try:
+        res = await jev.evaluate(state, questions, purpose="tclk")
+    except jev.JevUnavailable as exc:
+        return "proceed", f"jev unavailable ({exc})"
+    legit = res.prob("legit_task")
+    scam, scam_conf = res.choice("scam")
+    scam = scam.lower()
+    if scam == "high" and scam_conf >= settings.JEV_REVIEW_THRESHOLD:
+        return "skip", f"jev:scam(high {scam_conf:.2f})"
+    if legit < settings.JEV_REVIEW_THRESHOLD:
+        return "skip", f"jev:legit({legit:.2f})"
+    return "proceed", f"jev:legit({legit:.2f}) scam={scam}({scam_conf:.2f})"

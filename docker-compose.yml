@@ -103,6 +103,21 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
+      JEV_ENABLED: ${JEV_ENABLED:-false}
+      JEV_BASE_URL: ${JEV_BASE_URL:-https://ai-gateway.vercel.sh/v1}
+      JEV_API_KEY: ${JEV_API_KEY:-}
+      JEV_MODEL: ${JEV_MODEL:-typesafe-ai/jev}
+      JEV_ALLOWED_HOSTS: ${JEV_ALLOWED_HOSTS:-ai-gateway.vercel.sh}
+      JEV_TIMEOUT_SECONDS: ${JEV_TIMEOUT_SECONDS:-15}
+      JEV_AUTO_THRESHOLD: ${JEV_AUTO_THRESHOLD:-0.90}
+      JEV_REVIEW_THRESHOLD: ${JEV_REVIEW_THRESHOLD:-0.60}
+      JEV_MAX_CALLS_PER_MINUTE: ${JEV_MAX_CALLS_PER_MINUTE:-60}
+      JEV_DAILY_CALL_CAP: ${JEV_DAILY_CALL_CAP:-20000}
+      JEV_EVALUATOR_ENABLED: ${JEV_EVALUATOR_ENABLED:-false}
+      JEV_POLICY_ENABLED: ${JEV_POLICY_ENABLED:-false}
+      JEV_TCLK_ENABLED: ${JEV_TCLK_ENABLED:-false}
+      JEV_POLICY_TOOLS: ${JEV_POLICY_TOOLS:-technocore_read,github_repo_read,http_json_read,internal_health,db_self_write}
+      JEV_ESCALATE_TO_LLM: ${JEV_ESCALATE_TO_LLM:-true}
       LLM_SESSION_ID: ${LLM_SESSION_ID:-}
       LLM_USER_AGENT: ${LLM_USER_AGENT:-}
       RUN_MAX_ITERATIONS: ${RUN_MAX_ITERATIONS:-40}
@@ -180,6 +195,21 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
+      JEV_ENABLED: ${JEV_ENABLED:-false}
+      JEV_BASE_URL: ${JEV_BASE_URL:-https://ai-gateway.vercel.sh/v1}
+      JEV_API_KEY: ${JEV_API_KEY:-}
+      JEV_MODEL: ${JEV_MODEL:-typesafe-ai/jev}
+      JEV_ALLOWED_HOSTS: ${JEV_ALLOWED_HOSTS:-ai-gateway.vercel.sh}
+      JEV_TIMEOUT_SECONDS: ${JEV_TIMEOUT_SECONDS:-15}
+      JEV_AUTO_THRESHOLD: ${JEV_AUTO_THRESHOLD:-0.90}
+      JEV_REVIEW_THRESHOLD: ${JEV_REVIEW_THRESHOLD:-0.60}
+      JEV_MAX_CALLS_PER_MINUTE: ${JEV_MAX_CALLS_PER_MINUTE:-60}
+      JEV_DAILY_CALL_CAP: ${JEV_DAILY_CALL_CAP:-20000}
+      JEV_EVALUATOR_ENABLED: ${JEV_EVALUATOR_ENABLED:-false}
+      JEV_POLICY_ENABLED: ${JEV_POLICY_ENABLED:-false}
+      JEV_TCLK_ENABLED: ${JEV_TCLK_ENABLED:-false}
+      JEV_POLICY_TOOLS: ${JEV_POLICY_TOOLS:-technocore_read,github_repo_read,http_json_read,internal_health,db_self_write}
+      JEV_ESCALATE_TO_LLM: ${JEV_ESCALATE_TO_LLM:-true}
       LLM_SESSION_ID: ${LLM_SESSION_ID:-}
       LLM_USER_AGENT: ${LLM_USER_AGENT:-}
       RUN_MAX_ITERATIONS: ${RUN_MAX_ITERATIONS:-40}
@@ -261,6 +291,21 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
+      JEV_ENABLED: ${JEV_ENABLED:-false}
+      JEV_BASE_URL: ${JEV_BASE_URL:-https://ai-gateway.vercel.sh/v1}
+      JEV_API_KEY: ${JEV_API_KEY:-}
+      JEV_MODEL: ${JEV_MODEL:-typesafe-ai/jev}
+      JEV_ALLOWED_HOSTS: ${JEV_ALLOWED_HOSTS:-ai-gateway.vercel.sh}
+      JEV_TIMEOUT_SECONDS: ${JEV_TIMEOUT_SECONDS:-15}
+      JEV_AUTO_THRESHOLD: ${JEV_AUTO_THRESHOLD:-0.90}
+      JEV_REVIEW_THRESHOLD: ${JEV_REVIEW_THRESHOLD:-0.60}
+      JEV_MAX_CALLS_PER_MINUTE: ${JEV_MAX_CALLS_PER_MINUTE:-60}
+      JEV_DAILY_CALL_CAP: ${JEV_DAILY_CALL_CAP:-20000}
+      JEV_EVALUATOR_ENABLED: ${JEV_EVALUATOR_ENABLED:-false}
+      JEV_POLICY_ENABLED: ${JEV_POLICY_ENABLED:-false}
+      JEV_TCLK_ENABLED: ${JEV_TCLK_ENABLED:-false}
+      JEV_POLICY_TOOLS: ${JEV_POLICY_TOOLS:-technocore_read,github_repo_read,http_json_read,internal_health,db_self_write}
+      JEV_ESCALATE_TO_LLM: ${JEV_ESCALATE_TO_LLM:-true}
       LLM_SESSION_ID: ${LLM_SESSION_ID:-}
       LLM_USER_AGENT: ${LLM_USER_AGENT:-}
     depends_on:

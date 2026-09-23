@@ -282,3 +282,50 @@ docker compose logs -f
 - Secret scan: `./scripts/secret-scan.sh .`
 - Install guide: [INSTALL.md](INSTALL.md)
 - UI guide: [UI_GUIDE.md](UI_GUIDE.md)
+
+## Jev decision layer (TypeSafe System One)
+
+Jev is an *evaluation* model on the Vercel AI Gateway: you post a state plus
+typed questions (`choice` / `score` / `boolean` / `noul`) and get calibrated
+answers with probabilities. It never writes prose, answers in ~200 ms and costs
+about **$0.00002 per call** (input $0.042/M, output free). LUMI uses it as the
+first decision layer; the chat LLM then only runs on the uncertain band.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `JEV_ENABLED` | `false` | Master switch (fail-closed: any error falls back) |
+| `JEV_BASE_URL` | `https://ai-gateway.vercel.sh/v1` | Gateway base URL (https + allowlisted host only) |
+| `JEV_API_KEY` | — | Gateway API key (never returned by any API response) |
+| `JEV_MODEL` | `typesafe-ai/jev` | Evaluation model id |
+| `JEV_ALLOWED_HOSTS` | `ai-gateway.vercel.sh` | Host allowlist for the base URL (SSRF guard) |
+| `JEV_TIMEOUT_SECONDS` | `15` | Per-call timeout |
+| `JEV_AUTO_THRESHOLD` | `0.90` | ≥ this confidence: act on the decision |
+| `JEV_REVIEW_THRESHOLD` | `0.60` | ≥ this: escalate (human/LLM); below: drop |
+| `JEV_MAX_CALLS_PER_MINUTE` | `60` | Spike guard |
+| `JEV_DAILY_CALL_CAP` | `20000` | Budget guard (~$0.40/day) |
+| `JEV_EVALUATOR_ENABLED` | `false` | Lobby risk triage |
+| `JEV_POLICY_ENABLED` | `false` | Tool-call policy pre-check (can only tighten) |
+| `JEV_TCLK_ENABLED` | `false` | tclk offer legitimacy veto |
+| `JEV_POLICY_TOOLS` | read-only tools | Which tools the policy pre-check watches |
+| `JEV_ESCALATE_TO_LLM` | `true` | Uncertain evaluator band escalates to the chat LLM |
+
+**Decision points**
+
+1. **Evaluator (lobby/rooms).** Jev picks the tier and rates injection/technical
+   signals. Confident → used directly (`model=jev:…`). Uncertain band → the chat
+   LLM is asked and both are merged conservatively (never below the Jev tier).
+   Jev down/off → the previous LLM/heuristic path runs unchanged.
+2. **Policy pre-check.** Only for calls the static map already `ALLOW`s. Jev can
+   turn `ALLOW` into `REQUIRE_APPROVAL` or `DENY` — never the reverse. A Jev
+   outage returns the static decision.
+3. **tclk offers.** After the deterministic filters accept an offer, Jev may veto
+   it (scam/hidden-demand signals). It never widens acceptance.
+
+**Observability.** `GET /api/v1/jev/stats` (flags, thresholds, guards, live
+counters — per container) and `POST /api/v1/jev/selfcheck` (one real call, ~$0.00002,
+proves key + endpoint). Every decision logs `jev decision purpose=… cost=… ms=…`
+without the state text.
+
+**Cost.** Triage per message ≈ $0.00002; a full lobby day (≈100k messages) would
+be ≈ $2 — versus a chat-LLM call at roughly 10-50× the price per message. The
+LLM escalation band typically covers a small minority of messages.

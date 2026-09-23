@@ -121,6 +121,30 @@ class Settings(BaseSettings):
     # usage) while agent TASKS still use the real LLM provider.
     EVALUATOR_LLM_ENABLED: bool = True
 
+    # --- Jev (TypeSafe System One) decision layer ---------------------------
+    # Cheap typed decisions (choice/score/boolean) at ~$0.00002 and ~200 ms per
+    # call. Used as the first decision layer; the chat LLM only runs on the
+    # uncertain band (confidence between review and auto thresholds). Disabled
+    # by default and fail-closed: any error falls back to the previous path.
+    JEV_ENABLED: bool = False
+    JEV_BASE_URL: str = "https://ai-gateway.vercel.sh/v1"
+    JEV_API_KEY: str = ""
+    JEV_MODEL: str = "typesafe-ai/jev"
+    JEV_ALLOWED_HOSTS: str = "ai-gateway.vercel.sh"
+    JEV_TIMEOUT_SECONDS: float = 15.0
+    JEV_AUTO_THRESHOLD: float = 0.90  # >= auto: act on the decision
+    JEV_REVIEW_THRESHOLD: float = 0.60  # >= review: escalate to human/LLM, else drop
+    JEV_MAX_CALLS_PER_MINUTE: int = 60  # spike guard
+    JEV_DAILY_CALL_CAP: int = 20000  # budget guard (~$0.40/day at 2e-5 per call)
+    # Per-surface switches: each one turns Jev on for that decision point only.
+    JEV_EVALUATOR_ENABLED: bool = False  # lobby risk triage
+    JEV_POLICY_ENABLED: bool = False  # tool-call policy pre-check (can only tighten)
+    JEV_TCLK_ENABLED: bool = False  # tclk offer legitimacy veto
+    JEV_POLICY_TOOLS: str = (
+        "technocore_read,github_repo_read,http_json_read,internal_health,db_self_write"
+    )  # tools the policy pre-check may watch (ALLOW-only tightening)
+    JEV_ESCALATE_TO_LLM: bool = True  # uncertain evaluator band -> chat LLM when available
+
     # API host/port (0.0.0.0 inside container; host binding is restricted to 127.0.0.1 via Docker port mapping)
     API_HOST: str = "0.0.0.0"  # nosec B104
     API_PORT: int = 8000
