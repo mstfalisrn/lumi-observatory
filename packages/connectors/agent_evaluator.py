@@ -325,6 +325,32 @@ _JEV_QUESTIONS: dict[str, dict] = {
 }
 
 
+_JEV_SAMPLE_SEEN = 0
+
+
+def _jev_candidate(heuristic: dict) -> bool:
+    """Should this message be sent to Jev?
+
+    Budget-aware candidate selection: the lobby is far busier than the gateway
+    allowance (~30 requests/window), so Jev serves the messages that matter —
+    those the cheap heuristic already flags at or above MIN_TIER — plus a
+    1-in-N sample of clean traffic so we can still see drift.
+    """
+    global _JEV_SAMPLE_SEEN
+    tier = str(heuristic.get("tier", TIER_SAFE)).upper()
+    min_tier = str(settings.JEV_EVALUATOR_MIN_TIER or TIER_WATCH).upper()
+    if min_tier not in VALID_TIERS:
+        min_tier = TIER_WATCH
+    if VALID_TIERS.index(tier if tier in VALID_TIERS else TIER_SAFE) >= VALID_TIERS.index(min_tier):
+        return True
+    sample_n = int(settings.JEV_EVALUATOR_SAMPLE_N or 0)
+    if sample_n > 0:
+        _JEV_SAMPLE_SEEN += 1
+        if _JEV_SAMPLE_SEEN % sample_n == 0:
+            return True
+    return False
+
+
 async def _jev_evaluate(text: str, nick: str, did: str | None, room: str) -> dict | None:
     """Jev risk triage. None when Jev is unavailable (caller keeps its own path)."""
     from connectors import jev
@@ -470,20 +496,26 @@ async def evaluate_agent_message(
         provider != "mock" and settings.LLM_BASE_URL and settings.EVALUATOR_LLM_ENABLED
     )
 
-    # 1) Jev first — the cheap decision layer.
+    # 1) Jev — the cheap typed decision layer, applied to *candidates* only
+    #    (heuristic >= MIN_TIER, plus a 1-in-N sample). The bulk of lobby traffic
+    #    keeps the zero-cost heuristic so the shared Jev allowance stays free for
+    #    the policy/tclk decisions that actually gate actions.
     if settings.JEV_EVALUATOR_ENABLED:
-        jev_res = await _jev_evaluate(text, nick, did, room)
-        if jev_res is not None:
-            confidence = float(jev_res.get("confidence") or 0.0)
-            if confidence >= settings.JEV_AUTO_THRESHOLD:
-                return jev_res
-            if confidence >= settings.JEV_REVIEW_THRESHOLD and llm_available and settings.JEV_ESCALATE_TO_LLM:
-                llm_res, _err = await _llm_evaluate(text, nick, did, room)
-                if llm_res is not None:
-                    return _merge_conservative(jev_res, llm_res)
-            heuristic = _heuristic_evaluate(text)
-            heuristic["model"] = "heuristic/mock"
-            return _merge_conservative(jev_res, heuristic)
+        heuristic = _heuristic_evaluate(text)
+        if _jev_candidate(heuristic):
+            jev_res = await _jev_evaluate(text, nick, did, room)
+            if jev_res is not None:
+                confidence = float(jev_res.get("confidence") or 0.0)
+                if confidence >= settings.JEV_AUTO_THRESHOLD:
+                    return jev_res
+                if confidence >= settings.JEV_REVIEW_THRESHOLD and llm_available and settings.JEV_ESCALATE_TO_LLM:
+                    llm_res, _err = await _llm_evaluate(text, nick, did, room)
+                    if llm_res is not None:
+                        return _merge_conservative(jev_res, llm_res)
+                heuristic["model"] = "heuristic/mock"
+                return _merge_conservative(jev_res, heuristic)
+        heuristic["model"] = "heuristic/mock"
+        return heuristic
 
     # 2) chat LLM path (unchanged behaviour when Jev is off)
     if not llm_available:

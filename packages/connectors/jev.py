@@ -197,32 +197,59 @@ class JevClient:
         self.timeout = float(timeout or settings.JEV_TIMEOUT_SECONDS or 15)
         self._client = client
         self._call_times: list[float] = []
+        self._purpose_times: dict[str, list[float]] = {}
         self._day: str = ""
         self._day_calls: int = 0
+        self._open_until: float = 0.0  # circuit breaker (gateway 429 / outages)
         self._lock = asyncio.Lock()
 
     # --- guards ---
     def enabled(self) -> bool:
         return bool(settings.JEV_ENABLED and self.api_key and self.base_url and _host_allowed(self.base_url))
 
-    async def _cap_check(self) -> None:
-        """Raise JevUnavailable when a cap is hit; also rolls the daily counter."""
+    async def _cap_check(self, purpose: str = "generic") -> None:
+        """Raise JevUnavailable when a cap or the circuit breaker blocks a call."""
         async with self._lock:
+            now = time.time()
+            if now < self._open_until:
+                raise JevUnavailable(f"circuit open for {int(self._open_until - now)}s")
             today = datetime.now(UTC).strftime("%Y-%m-%d")
             if today != self._day:
                 self._day = today
                 self._day_calls = 0
             if self._day_calls >= int(settings.JEV_DAILY_CALL_CAP or 0):
                 raise JevUnavailable("daily call cap reached")
-            now = time.time()
             self._call_times = [t for t in self._call_times if now - t < 60.0]
             if len(self._call_times) >= int(settings.JEV_MAX_CALLS_PER_MINUTE or 0):
                 raise JevUnavailable("per-minute call cap reached")
+            # per-purpose budget: keeps the evaluator from eating the shared
+            # allowance that policy/tclk decisions need.
+            cap = self._purpose_cap(purpose)
+            if cap > 0:
+                times = [t for t in self._purpose_times.get(purpose, []) if now - t < 60.0]
+                self._purpose_times[purpose] = times
+                if len(times) >= cap:
+                    raise JevUnavailable(f"per-minute cap reached for purpose={purpose}")
 
-    async def _record_call(self) -> None:
+    @staticmethod
+    def _purpose_cap(purpose: str) -> int:
+        if purpose == "evaluator":
+            return int(settings.JEV_EVALUATOR_MAX_CALLS_PER_MINUTE or 0)
+        return 0  # policy/tclk/selfcheck share the global allowance
+
+    async def _record_call(self, purpose: str = "generic") -> None:
         async with self._lock:
-            self._call_times.append(time.time())
+            now = time.time()
+            self._call_times.append(now)
+            self._purpose_times.setdefault(purpose, []).append(now)
             self._day_calls += 1
+
+    def _trip_breaker(self, seconds: float) -> None:
+        """Open the circuit so a rate-limited gateway is not hammered again."""
+        self._open_until = max(self._open_until, time.time() + max(1.0, seconds))
+
+    def circuit_seconds_left(self) -> int:
+        return max(0, int(self._open_until - time.time()))
 
     # --- api ---
     async def evaluate(
@@ -248,7 +275,7 @@ class JevClient:
             if not isinstance(q, dict) or q.get("type") not in QTYPES:
                 raise JevUnavailable(f"question '{name}' has an unsupported type")
 
-        await self._cap_check()
+        await self._cap_check(purpose)
 
         payload = {"model": model or self.model, "state": state, "questions": questions}
         started = time.monotonic()
@@ -267,6 +294,18 @@ class JevClient:
             finally:
                 if close_after:
                     await client.aclose()
+            if resp.status_code == 429:
+                # Gateway rate limit (x-ratelimit-limit-requests is ~30/window):
+                # honour Retry-After and stop calling until then instead of
+                # hammering the quota.
+                retry_after = 0.0
+                try:
+                    retry_after = float(resp.headers.get("retry-after") or 0)
+                except Exception:
+                    retry_after = 0.0
+                self._trip_breaker(retry_after or settings.JEV_BACKOFF_SECONDS)
+                STATS.fallbacks += 1
+                raise JevUnavailable(f"gateway 429 (backoff {int(retry_after or settings.JEV_BACKOFF_SECONDS)}s)")
             resp.raise_for_status()
             data = resp.json()
         except JevUnavailable:
@@ -290,7 +329,7 @@ class JevClient:
             except Exception:
                 continue
 
-        await self._record_call()
+        await self._record_call(purpose)
         STATS.calls += 1
         STATS.cost_usd += cost
         STATS.last_cost_usd = cost

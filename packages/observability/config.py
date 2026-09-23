@@ -134,8 +134,9 @@ class Settings(BaseSettings):
     JEV_TIMEOUT_SECONDS: float = 15.0
     JEV_AUTO_THRESHOLD: float = 0.90  # >= auto: act on the decision
     JEV_REVIEW_THRESHOLD: float = 0.60  # >= review: escalate to human/LLM, else drop
-    JEV_MAX_CALLS_PER_MINUTE: int = 60  # spike guard
+    JEV_MAX_CALLS_PER_MINUTE: int = 24  # our own cap, kept under the gateway's ~30/window
     JEV_DAILY_CALL_CAP: int = 20000  # budget guard (~$0.40/day at 2e-5 per call)
+    JEV_BACKOFF_SECONDS: float = 45.0  # circuit-breaker window after a gateway 429
     # Per-surface switches: each one turns Jev on for that decision point only.
     JEV_EVALUATOR_ENABLED: bool = False  # lobby risk triage
     JEV_POLICY_ENABLED: bool = False  # tool-call policy pre-check (can only tighten)
@@ -143,6 +144,15 @@ class Settings(BaseSettings):
     JEV_POLICY_TOOLS: str = (
         "technocore_read,github_repo_read,http_json_read,internal_health,db_self_write"
     )  # tools the policy pre-check may watch (ALLOW-only tightening)
+    # Evaluator budget control: the lobby is far too busy to send every message
+    # to Jev (gateway allows ~30 requests/window). Jev runs on *candidates* —
+    # messages the cheap heuristic already flags at or above MIN_TIER — plus a
+    # 1-in-N sample of clean traffic for drift visibility. Everything else keeps
+    # the zero-cost heuristic, and the shared allowance stays free for the
+    # policy/tclk decisions that actually gate actions.
+    JEV_EVALUATOR_MIN_TIER: str = "WATCH"
+    JEV_EVALUATOR_SAMPLE_N: int = 40
+    JEV_EVALUATOR_MAX_CALLS_PER_MINUTE: int = 12
     JEV_ESCALATE_TO_LLM: bool = True  # uncertain evaluator band -> chat LLM when available
 
     # API host/port (0.0.0.0 inside container; host binding is restricted to 127.0.0.1 via Docker port mapping)
