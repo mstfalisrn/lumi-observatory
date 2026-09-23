@@ -121,6 +121,7 @@ services:
       JEV_POLICY_ENABLED: ${JEV_POLICY_ENABLED:-false}
       JEV_TCLK_ENABLED: ${JEV_TCLK_ENABLED:-false}
       JEV_POLICY_TOOLS: ${JEV_POLICY_TOOLS:-technocore_read,github_repo_read,http_json_read,internal_health,db_self_write}
+      JEV_POLICY_REVIEW_THRESHOLD: ${JEV_POLICY_REVIEW_THRESHOLD:-0.50}
       JEV_ESCALATE_TO_LLM: ${JEV_ESCALATE_TO_LLM:-true}
       LLM_SESSION_ID: ${LLM_SESSION_ID:-}
       LLM_USER_AGENT: ${LLM_USER_AGENT:-}
@@ -217,6 +218,7 @@ services:
       JEV_POLICY_ENABLED: ${JEV_POLICY_ENABLED:-false}
       JEV_TCLK_ENABLED: ${JEV_TCLK_ENABLED:-false}
       JEV_POLICY_TOOLS: ${JEV_POLICY_TOOLS:-technocore_read,github_repo_read,http_json_read,internal_health,db_self_write}
+      JEV_POLICY_REVIEW_THRESHOLD: ${JEV_POLICY_REVIEW_THRESHOLD:-0.50}
       JEV_ESCALATE_TO_LLM: ${JEV_ESCALATE_TO_LLM:-true}
       LLM_SESSION_ID: ${LLM_SESSION_ID:-}
       LLM_USER_AGENT: ${LLM_USER_AGENT:-}
@@ -317,6 +319,7 @@ services:
       JEV_POLICY_ENABLED: ${JEV_POLICY_ENABLED:-false}
       JEV_TCLK_ENABLED: ${JEV_TCLK_ENABLED:-false}
       JEV_POLICY_TOOLS: ${JEV_POLICY_TOOLS:-technocore_read,github_repo_read,http_json_read,internal_health,db_self_write}
+      JEV_POLICY_REVIEW_THRESHOLD: ${JEV_POLICY_REVIEW_THRESHOLD:-0.50}
       JEV_ESCALATE_TO_LLM: ${JEV_ESCALATE_TO_LLM:-true}
       LLM_SESSION_ID: ${LLM_SESSION_ID:-}
       LLM_USER_AGENT: ${LLM_USER_AGENT:-}

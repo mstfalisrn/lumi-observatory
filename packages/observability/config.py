@@ -153,6 +153,10 @@ class Settings(BaseSettings):
     JEV_EVALUATOR_MIN_TIER: str = "WATCH"
     JEV_EVALUATOR_SAMPLE_N: int = 40
     JEV_EVALUATOR_MAX_CALLS_PER_MINUTE: int = 12
+    # Policy surface has its own (lower) review gate: normal reads must not drown
+    # the operator in approvals, while credential-path reads / abusive intent
+    # still escalate or get denied.
+    JEV_POLICY_REVIEW_THRESHOLD: float = 0.50
     JEV_ESCALATE_TO_LLM: bool = True  # uncertain evaluator band -> chat LLM when available
 
     # API host/port (0.0.0.0 inside container; host binding is restricted to 127.0.0.1 via Docker port mapping)

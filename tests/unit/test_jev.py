@@ -28,6 +28,7 @@ def jev_env(monkeypatch):
     monkeypatch.setattr(settings, "JEV_EVALUATOR_MAX_CALLS_PER_MINUTE", 1000)
     monkeypatch.setattr(settings, "JEV_EVALUATOR_MIN_TIER", "WATCH")
     monkeypatch.setattr(settings, "JEV_EVALUATOR_SAMPLE_N", 0)
+    monkeypatch.setattr(settings, "JEV_POLICY_REVIEW_THRESHOLD", 0.50)
     jev.reset_default_client()
     yield
     jev.reset_default_client()
@@ -306,26 +307,50 @@ async def test_policy_jev_denies_abusive_intent(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_policy_jev_escalates_when_uncertain(monkeypatch):
+async def test_policy_jev_escalates_out_of_scope(monkeypatch):
     monkeypatch.setattr(settings, "JEV_POLICY_ENABLED", True)
     payload = {
         "model": "typesafe-ai/jev",
         "answers": {
-            "within_scope": {"type": "boolean", "probability": 0.72},
+            "within_scope": {"type": "boolean", "probability": 0.35},
             "intent": {
                 "type": "choice",
                 "choice": "legit",
-                "probabilities": {"legit": 0.8, "suspicious": 0.15, "abusive": 0.05},
-                "confidence": 0.8,
+                "probabilities": {"legit": 0.6, "suspicious": 0.3, "abusive": 0.1},
+                "confidence": 0.6,
             },
         },
         "usage": {},
         "providerMetadata": {"gateway": {"cost": "0.00001"}},
     }
     _install_client(monkeypatch, make_client(ok_handler(payload)))
-    decision = await PolicyEngine().decide_async("technocore_read", {})
+    decision = await PolicyEngine().decide_async("technocore_read", {"path": "/opt/.env"})
     assert decision.decision == "REQUIRE_APPROVAL"
-    assert decision.reason.startswith("jev:uncertain")
+    assert decision.reason.startswith("jev:out-of-scope")
+
+
+@pytest.mark.asyncio
+async def test_policy_normal_read_is_not_approval_fatigue(monkeypatch):
+    """A plain room read scored 0.85 must stay ALLOW (no false escalations)."""
+    monkeypatch.setattr(settings, "JEV_POLICY_ENABLED", True)
+    payload = {
+        "model": "typesafe-ai/jev",
+        "answers": {
+            "within_scope": {"type": "boolean", "probability": 0.85},
+            "intent": {
+                "type": "choice",
+                "choice": "legit",
+                "probabilities": {"legit": 0.9, "suspicious": 0.08, "abusive": 0.02},
+                "confidence": 0.9,
+            },
+        },
+        "usage": {},
+        "providerMetadata": {"gateway": {"cost": "0.00001"}},
+    }
+    _install_client(monkeypatch, make_client(ok_handler(payload)))
+    decision = await PolicyEngine().decide_async("technocore_read", {"room": "lobby", "since": 0})
+    assert decision.decision == "ALLOW"
+    assert decision.reason.startswith("jev:ok")
 
 
 @pytest.mark.asyncio

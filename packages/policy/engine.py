@@ -116,10 +116,12 @@ class PolicyEngine:
         within = res.prob("within_scope")
         intent, intent_conf = res.choice("intent")
         intent = intent.lower()
-        review = settings.JEV_REVIEW_THRESHOLD
-        auto = settings.JEV_AUTO_THRESHOLD
+        review = settings.JEV_POLICY_REVIEW_THRESHOLD
 
-        # Tighten only — never loosen the static decision.
+        # Tighten only — never loosen the static decision. The policy surface
+        # uses its own (lower) review gate: a normal read that Jev scores 0.85
+        # must not drown the operator in approvals, while a credential-path read
+        # or an abusive intent still escalates or is denied.
         if intent == "abusive" and intent_conf >= review:
             return PolicyDecision(base.action_class, "DENY", f"jev:abusive({intent_conf:.2f}) tool={tool}")
         if intent == "suspicious" and intent_conf >= review:
@@ -129,10 +131,6 @@ class PolicyEngine:
         if within < review:
             return PolicyDecision(
                 base.action_class, "REQUIRE_APPROVAL", f"jev:out-of-scope({within:.2f}) tool={tool}"
-            )
-        if within < auto:
-            return PolicyDecision(
-                base.action_class, "REQUIRE_APPROVAL", f"jev:uncertain({within:.2f}) tool={tool}"
             )
         return PolicyDecision(base.action_class, "ALLOW", f"jev:ok({within:.2f}) tool={tool}")
 
