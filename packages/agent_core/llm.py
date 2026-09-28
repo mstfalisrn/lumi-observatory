@@ -50,7 +50,7 @@ def _report_usage(model: str, usage: dict, purpose: str, elapsed_s: float) -> No
             purpose=purpose,
             latency_ms=int(elapsed_s * 1000),
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
 

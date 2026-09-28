@@ -384,7 +384,7 @@ async def post(connector, st: dict, text: str, *, what: str, jid: str) -> bool:
 async def run_once(connector, st: dict, dry: bool, limit: int | None = None) -> int:
     tok = our_token(connector.did_public)
     # Uzun poll: yeni satır gelir gelmez döner → claim yarışında gecikme kalmaz.
-    cursor, fresh = await fetch(connector, st.get("cursor", ""), wait=WAIT_S)
+    _cursor, fresh = await fetch(connector, st.get("cursor", ""), wait=WAIT_S)
     if fresh:
         st["cursor"] = str(fresh[-1]["seq"])
     done = 0
@@ -453,7 +453,7 @@ async def attest_round(connector, st: dict, rows: list[dict], dry: bool) -> int:
         if not attest_budget_ok(st):
             break
         jid, body = ev["id"], ev.get("body", "") or ""
-        if jid in st.get("answered", {}) or jid in st.get("attests", {}):
+        if jid in st.get("answered", {}) or jid in attests:
             continue
         if jid in st.get("claims", {}):
             continue  # yarıştığımız işi kendimiz övmenin anlamı yok
@@ -467,7 +467,7 @@ async def attest_round(connector, st: dict, rows: list[dict], dry: bool) -> int:
             given += 1
             continue
         if await post(connector, st, f"ATTEST v1 | {jid} | useful | {reason}", what="ATTEST", jid=jid):
-            st["attests"][jid] = [int(time.time()), "useful"]
+            attests[jid] = [int(time.time()), "useful"]
             pairs[ev.get("author", "?")] = int(pairs.get(ev.get("author", "?"), 0)) + 1
             st["attest_count"] = int(st.get("attest_count") or 0) + 1
             save_state(st)

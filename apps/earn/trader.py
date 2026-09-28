@@ -27,17 +27,14 @@ below the venue's 3000, dry-run by default in `--once` mode unless --post.
 
 from __future__ import annotations
 
-import re
-
 import argparse
 import asyncio
-import hashlib
 import json
 import os
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -45,7 +42,9 @@ for p in (str(REPO), str(REPO / "packages")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import httpx  # noqa: E402
+import itertools
+
+import httpx
 
 SITE = "https://flopmarkets.com"
 TC = os.environ.get("TECHNOCORE_BASE_URL", "https://technocore.chat").rstrip("/")
@@ -76,7 +75,7 @@ CHAIN = ["m01", "m02", "m03"]
 
 
 def log(msg: str) -> None:
-    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}", flush=True)
+    print(f"[{datetime.now(UTC).strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
 def load_state() -> dict:
@@ -100,7 +99,7 @@ def append_trade(row: dict) -> None:
 
 
 def today() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 # --- market data ------------------------------------------------------------
@@ -204,7 +203,7 @@ def probe_coherence(by_id: dict) -> list[dict]:
         return price_of(m, outcome) if m else None
 
     # later deadlines cannot be cheaper than earlier ones
-    chain = [(a, b) for a, b in zip(CHAIN, CHAIN[1:]) if a in by_id and b in by_id]
+    chain = [(a, b) for a, b in itertools.pairwise(CHAIN) if a in by_id and b in by_id]
     for early, late in chain:
         pe, pl = p(early), p(late)
         if pe is None or pl is None:
@@ -297,14 +296,14 @@ async def watch_news(client: httpx.AsyncClient, st: dict) -> list[dict]:
             )
             key = f"links:{url}"
             prev = base.get(key)
-            new_links = [l for l in links if prev is not None and l not in prev]
+            new_links = [lnk for lnk in links if prev is not None and lnk not in prev]
             if new_links:
                 hits.append(
                     {
                         "kind": "news",
                         "source": url,
                         "why": "new artefact link(s): " + ", ".join(new_links[:4]),
-                        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        "at": datetime.now(UTC).isoformat(timespec="seconds"),
                     }
                 )
             base[key] = links
@@ -346,7 +345,7 @@ async def send_telegram(text: str) -> None:
 async def place(connector, mid: str, outcome: str, shares: int, max_price: float, post: bool) -> dict:
     text = f"flopmarket buy {mid} {outcome} {shares} max {max_price:.3f}"
     row = {
-        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "ts": datetime.now(UTC).isoformat(timespec="seconds"),
         "market": mid,
         "outcome": outcome,
         "shares": shares,
@@ -462,7 +461,7 @@ async def cycle(post: bool) -> int:
         log("no coherence edge (markets consistent)")
 
     # holdings for our DID, if the venue publishes them
-    holdings = st.setdefault("holdings", {})
+    st.setdefault("holdings", {})
     did = ""
     try:
         connector = make_connector()
@@ -475,7 +474,6 @@ async def cycle(post: bool) -> int:
         try:
             for row in odds.get("holdings", []) if isinstance(odds, dict) else []:
                 if str(row.get("did")) == did:
-                    holdings = row
                     break
         except Exception:
             pass

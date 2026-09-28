@@ -36,7 +36,7 @@ STRONG=(
 
 # Exclude placeholders from matching (filtered line by line)
 is_placeholder_line() {
-  echo "$1" | grep -qE 'CHANGE_ME|REPLACE_ME|dev-only|example\.com|_here|your-.*-here|\$\{|random|:x@|localhost:5432/lumi|127\.0\.0\.1|<MASKED>|<REDACTED>|\*\*\*|docs/mcp-audit' 2>/dev/null
+  echo "$1" | grep -qE 'CHANGE_ME|REPLACE_ME|dev-only|example\.com|_here|your-.*-here|\$\{|random|:x@|localhost:5432/lumi|lumi-postgres:5432|127\.0\.0\.1|<MASKED>|<REDACTED>|\*\*\*|docs/mcp-audit' 2>/dev/null
 }
 
 candidate_files() {

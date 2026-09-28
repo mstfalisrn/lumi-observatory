@@ -39,7 +39,7 @@ _DDL = (
 _INDEX = f"create index if not exists {TABLE}_ts_idx on {TABLE} (ts desc)"
 
 _INSERT = (
-    f"insert into {TABLE} "
+    f"insert into {TABLE} "  # noqa: S608 — {TABLE} is a module constant, all values are parameterized
     "(service, purpose, provider, model, prompt_tokens, completion_tokens,"
     " total_tokens, latency_ms) values (%s, %s, %s, %s, %s, %s, %s, %s)"
 )
@@ -180,7 +180,7 @@ def _flush(rows: list) -> None:
                 cur.execute(_DDL)
                 cur.execute(_INDEX)
                 cur.executemany(_INSERT, rows)
-    except Exception as e:  # noqa: BLE001 — accounting must never break a run
+    except Exception as e:
         if not _REPORTED_ERROR:
             log.warning("llm usage ledger write failed: %s", type(e).__name__)
             _REPORTED_ERROR = True
@@ -198,10 +198,10 @@ def probe() -> dict:
             with conn.cursor() as cur:
                 cur.execute(_DDL)
                 cur.execute(_INDEX)
-                cur.execute(f"select count(*), coalesce(sum(total_tokens), 0) from {TABLE}")
+                cur.execute(f"select count(*), coalesce(sum(total_tokens), 0) from {TABLE}")  # noqa: S608 — constant table name
                 count, total = cur.fetchone()
         return {"ok": True, "rows": int(count), "total_tokens": int(total)}
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return {"ok": False, "reason": type(e).__name__}
 
 
@@ -226,4 +226,4 @@ def record_now(**kw) -> None:
     )
 
 
-__all__ = ["TABLE", "dsn", "probe", "record", "record_now", "service_name", "tokens", "time"]
+__all__ = ["TABLE", "dsn", "probe", "record", "record_now", "service_name", "time", "tokens"]

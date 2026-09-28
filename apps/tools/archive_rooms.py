@@ -43,7 +43,7 @@ for p in (str(ROOT), str(ROOT / "packages")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import httpx  # noqa: E402
+import httpx
 
 # Varsayılan odalar: pazaryeri teslimatları, hakem kararları, kibble ve
 # flop tarafındaki yayın odaları (hepsi herkese açık, imzasız okunur).

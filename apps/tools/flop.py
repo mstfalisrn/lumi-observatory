@@ -25,7 +25,7 @@ for p in (str(ROOT), str(ROOT / "packages")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import httpx  # noqa: E402
+import httpx
 
 
 def base_url() -> str:

@@ -1237,7 +1237,7 @@ class AgentScorer:
                     attempt,
                 )
                 break
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 last_err = f"{type(e).__name__}"
                 log.warning("tclk reveal post failed attempt=%d: %s", attempt, last_err)
         print(
@@ -1254,7 +1254,7 @@ class AgentScorer:
                     f"💰 LUMI escrow claim: {pending.get('amount') or '?'} "
                     f"{pending.get('asset') or '?'} — deal odası {deal_room}{work}"
                 )
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 log.warning("tclk claim telegram failed: %s", type(e).__name__)
 
     async def _tclk_digest(self, session) -> str:

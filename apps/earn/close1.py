@@ -39,7 +39,7 @@ for p in (str(ROOT), str(ROOT / "packages")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import httpx  # noqa: E402
+import httpx
 
 BASE = os.environ.get("TECHNOCORE_BASE_URL", "https://technocore.chat").rstrip("/")
 HL = "https://api.hyperliquid.xyz/info"
@@ -188,7 +188,7 @@ async def register(post: bool) -> None:
         try:
             await c.signed_post(room, msg)
             print(f"posted to /r/{room}")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"post to /r/{room} failed: {e}")
         await asyncio.sleep(2)
     await c.aclose()
@@ -205,7 +205,7 @@ async def scan() -> None:
     print("owners:", state.get("owners"))
     c = connector()
     did = c.did_public
-    code, text = await read_room(c, ROOM, 0)
+    _code, text = await read_room(c, ROOM, 0)
     offers = []
     for seq, body in line_json(text):
         if body.get("t") not in ("offer", "trade"):
@@ -236,7 +236,7 @@ async def auto(post: bool, max_qty: float) -> None:
     lo, hi = (float(limits[0]), float(limits[1])) if len(limits) == 2 else (0.0, 1e9)
     want_maker_side = "sell" if side == "buy" else "buy"  # counterparty's side
     taken = load_taken()
-    code, text = await read_room(c, ROOM, 0)
+    _code, text = await read_room(c, ROOM, 0)
     best = None
     for seq, body in line_json(text):
         if body.get("t") != "offer":

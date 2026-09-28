@@ -54,12 +54,11 @@ try:  # bekçi compose dışında (host) çalışır, bu yüzden .env'i kendisi 
 except Exception:  # pragma: no cover - .env yoksa ortam değişkenleri yeter
     pass
 
-import httpx  # noqa: E402
-import psycopg  # noqa: E402
-from psycopg.types.json import Jsonb  # noqa: E402
+import httpx
+import psycopg
 
 # Oda arşivi mantığı burada; kopyalanmaz, içe aktarılır.
-from archive_rooms import (  # noqa: E402
+from archive_rooms import (
     DEFAULT_OUT_DIR,
     archive_path,
     archive_room,
@@ -68,8 +67,9 @@ from archive_rooms import (  # noqa: E402
     iter_records,
     mask_secret,
 )
+from psycopg.types.json import Jsonb
 
-from observability.llm_usage import dsn  # noqa: E402
+from observability.llm_usage import dsn
 
 # Bizim ajan DID'imiz. Kibble puanı bu DID ile sorulur, yayınlarda bu aranır.
 OUR_DID = os.environ.get(
@@ -94,7 +94,7 @@ PUNCT = " \t\r\n;.,:!?"
 class Feed:
     """Resmî yayın tanımı: nereden okunur, bizim satır hangi anahtarla bulunur."""
 
-    __slots__ = ("name", "url", "kind", "list_key", "score_key")
+    __slots__ = ("kind", "list_key", "name", "score_key", "url")
 
     def __init__(self, name: str, url: str, kind: str, list_key: str, score_key: str) -> None:
         self.name = name
