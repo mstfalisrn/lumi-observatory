@@ -1,8 +1,9 @@
-"""`val-*` teslim doğrulama hattının testleri (blockrewards kalibrasyon hattı).
+"""Tests for the `val-*` deliverable validation path (blockrewards calibration path).
 
-Notlar canlıdan alınan gerçek şemayı taklit eder: TASK / REFERENCE ANSWER /
-DELIVERABLE üçlüsü + "PASS or FAIL" talebi. Referans cevap oda genel olduğu
-için yanıtta asla alıntılanmaz — bu testler o kuralı da doğrular.
+The fixtures mimic the real schema taken from live: the TASK / REFERENCE ANSWER /
+DELIVERABLE triple plus a "PASS or FAIL" request. The reference answer is private
+to the validator, so it is never quoted in the reply — these tests verify that
+rule as well.
 """
 
 from apps.scheduler.tclk_solver import solve, solve_validation
@@ -36,9 +37,9 @@ def test_exact_match_is_a_pass():
 def test_verdict_reaches_the_answer_without_quoting_the_reference():
     answer = solve_validation(MISMATCH)
     assert answer is not None and answer.startswith("FAIL.")
-    # referans cevap doğrulayıcıya özel: yanıt onu alıntılamamalı
+    # the reference answer is private to the validator: the reply must not quote it
     assert "offers 4" not in answer
-    assert answer.count(".") == 2  # verdict + tek cümle
+    assert answer.count(".") == 2  # verdict + one sentence
 
 
 def test_contained_answer_is_a_pass():
@@ -52,7 +53,7 @@ def test_solve_routes_validation_before_the_other_handlers():
 
 
 def test_lowercase_deliverable_in_the_task_text_is_not_the_field():
-    # "Validate a deliverable." görev metnindeki küçük harfli sözcük alan sanılmamalı
+    # the lowercase word in the task text "Validate a deliverable." must not be taken for a field
     brief = (
         "validation | Validate a deliverable. TASK that was posted: \"x\". "
         "REFERENCE ANSWER the task's author holds: \"7\". "
@@ -62,7 +63,7 @@ def test_lowercase_deliverable_in_the_task_text_is_not_the_field():
 
 
 def test_field_order_is_respected():
-    # DELIVERABLE, REFERENCE ANSWER'dan önce geliyorsa alan eşleşmesi güvenilmez
+    # when DELIVERABLE precedes REFERENCE ANSWER the field match is unreliable
     brief = (
         "validation DELIVERABLE submitted by a worker: \"7\". "
         "REFERENCE ANSWER the task's author holds: \"8\"."

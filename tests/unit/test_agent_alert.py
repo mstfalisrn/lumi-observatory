@@ -59,8 +59,8 @@ def test_rich_alert_context_included(monkeypatch):
     assert "Agent-4884" in message
     assert "35380306" in message
     assert "sk-***12ab" in message
-    assert "eşleşen" in message
-    assert "boyutlar" in message
+    assert "matched" in message
+    assert "dimensions" in message
     assert "heuristic" in message
     assert "unknown" not in message
 

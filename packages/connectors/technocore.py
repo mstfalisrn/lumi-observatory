@@ -20,7 +20,7 @@ from connectors.ssrf import validate_host
 
 _UNTRUSTED = True
 
-# --- sabitler ---
+# --- constants ---
 _ROOM_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
 _DID_RE = re.compile(r"^did:key:z6Mk[1-9A-HJ-NP-Za-km-z]{44}$")
 _SIG_RE = re.compile(r"^[A-Za-z0-9_-]{86}$")
@@ -37,7 +37,7 @@ class TechnocoreError(Exception):
 # DID helpers — base58btc, multicodec ed25519-pub (0xed 0x01)
 # ---------------------------------------------------------------------------
 def _pubkey_to_did(pub_bytes: bytes) -> str:
-    """32 bayt Ed25519 pubkey -> did:key:z6Mk... (base58btc, multicodec)."""
+    """32-byte Ed25519 pubkey -> did:key:z6Mk... (base58btc, multicodec)."""
     import base58
 
     if len(pub_bytes) != 32:
@@ -52,7 +52,7 @@ def _did_to_pubkey(did: str) -> bytes:
 
     if not _DID_RE.match(did):
         raise ValueError(f"invalid did:key: {did}")
-    # z prefixini at, base58 decode -> 2 bayt prefix + 32 bayt pubkey
+    # strip the z prefix, base58 decode -> 2-byte prefix + 32-byte pubkey
     raw = base58.b58decode(did[len("did:key:z") :])
     if raw[:2] != b"\xed\x01":
         raise ValueError("multicodec prefix error")
@@ -148,7 +148,7 @@ def _parse_retry_after(resp: httpx.Response) -> float:
         body = resp.text or ""
     except Exception:
         body = ""
-    # body genelde "Too many requests, retry in 2.5 seconds ... bucket: reads ..."
+    # the body is usually "Too many requests, retry in 2.5 seconds ... bucket: reads ..."
     # take the first plausible number, clamp between 0.1-60
     if body:
         # first try around explicit "retry" / "wait"
@@ -246,20 +246,20 @@ class TechnocoreConnector:
         else:
             skey = SigningKey.generate()
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(bytes(skey))  # 32 bayt seed
+            path.write_bytes(bytes(skey))  # 32-byte seed
             path.chmod(0o600)
         self._signing_key = skey
         self._did_pub = _pubkey_to_did(bytes(skey.verify_key))
         return self._did_pub, path.as_posix()
 
     def sign(self, room: str, nonce: str, text: str) -> str:
-        """Canonical string'i imzala -> base64url unpadded 86 char sig."""
+        """Sign the canonical string -> base64url unpadded 86-char sig."""
         if self._signing_key is None:
             raise TechnocoreError("key not loaded")
         canon = canonical_string(room, nonce, text)
         sig_bytes = self._signing_key.sign(canon.encode("utf-8")).signature
         sig = base64.urlsafe_b64encode(sig_bytes).decode("ascii").rstrip("=")
-        # Ed25519 64 bayt -> 86 base64url chars (unpadded)
+        # Ed25519 64 bytes -> 86 base64url chars (unpadded)
         assert len(sig) == 86, f"sig len {len(sig)} != 86"
         return sig
 
@@ -301,7 +301,7 @@ class TechnocoreConnector:
         if not did:
             raise TechnocoreError("DID not found — call load_or_generate_key first")
         # row level lock
-        # Not: this uses FOR UPDATE to ensure atomic increment
+        # Note: this uses FOR UPDATE to ensure atomic increment
         result = await session.execute(
             select(TechnocoreNonce).where(
                 TechnocoreNonce.room == room, TechnocoreNonce.did == did
@@ -340,7 +340,7 @@ class TechnocoreConnector:
         from observability.models import TechnocoreCursor
 
         if seq < 0:
-            raise ValueError("seq negatif olamaz")
+            raise ValueError("seq cannot be negative")
         result = await session.execute(select(TechnocoreCursor).where(TechnocoreCursor.room == room))
         row = result.scalar_one_or_none()
         if row is None:
@@ -383,7 +383,7 @@ class TechnocoreConnector:
                 out[p] = f"error_{type(e).__name__}"
         return out
 
-    # --- Okuma (GET /r/{room}?since=&wait=&format=json) ---
+    # --- Read (GET /r/{room}?since=&wait=&format=json) ---
     async def read_room(self, room: str, since: int = 0, wait: int = 10, *, session=None) -> dict:
         """since=<last_seq>&wait=10; returns UNTRUSTED data. 429 body backoff + cursor optional."""
         if not _ROOM_RE.match(room):
@@ -469,7 +469,7 @@ class TechnocoreConnector:
         else:
             raise TechnocoreError("payload must be str or dict")
 
-        # sweep ve truncate 4096
+        # sweep and truncate to 4096
         swept = sweep_text(raw_text)
         if not swept.strip():
             raise TechnocoreError("empty after text sweep")
@@ -537,7 +537,7 @@ class TechnocoreConnector:
 
     # --- GET signed lane (alternative, for URL limits) ---
     def build_signed_get_url(self, room: str, text: str, *, nonce: str | None = None) -> str:
-        """GET /r/{room}/say-signed/{did}/{sig}/{nonce}/{text} URL'i kur (URL-encode text)."""
+        """Build the GET /r/{room}/say-signed/{did}/{sig}/{nonce}/{text} URL (URL-encode text)."""
         import urllib.parse
 
         if not self.did_public:

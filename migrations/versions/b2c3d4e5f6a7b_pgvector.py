@@ -5,7 +5,8 @@ Revises: a1b2c3d4e5f6
 Create Date: 2026-08-25
 
 Phase 4: add pgvector vector column — implement instead of removing the assertion.
-memory_items.embedding_vector Vector(1536) eklenir; pgvector extension zaten initdb'de var.
+Adds memory_items.embedding_vector Vector(1536); the pgvector extension already
+exists in initdb.
 """
 from typing import Union
 from collections.abc import Sequence
@@ -19,7 +20,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # extension zaten 01-init.sql'de ama migration idempotent olsun
+    # the extension is already in 01-init.sql; keep the migration idempotent anyway
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     # embedding_vector Vector(1536) — if pgvector is unavailable, JSONB also works as fallback, but we try Vector
     # create with raw SQL without SQLAlchemy import

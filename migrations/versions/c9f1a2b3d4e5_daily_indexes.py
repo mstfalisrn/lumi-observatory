@@ -1,11 +1,11 @@
-"""agent_evaluations.evaluated_at + tclk frames/audits contract indeksleri
+"""agent_evaluations.evaluated_at + tclk frames/audits contract indexes
 
 Revision ID: c9f1a2b3d4e5
 Revises: b8d2f4a6c9e1
 
-Neden: canlı günlük sayfası (apps/logs) "son N karar" sorgularını
-evaluated_at/contract üzerinden yapıyor. agent_evaluations 2.6M satırda
-sıralama indeksi olmadan tam tarama yapıyordu (sayfa açılışı ~5 sn).
+Why: the live log page (apps/logs) runs its "last N decisions" queries through
+evaluated_at/contract. With 2.6M rows agent_evaluations was doing a full scan
+without a sort index (page open took ~5s).
 """
 
 from alembic import op

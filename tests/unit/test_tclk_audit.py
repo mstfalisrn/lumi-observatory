@@ -1,4 +1,4 @@
-"""tclk/1 offer security audit ("denetim") tests."""
+"""tclk/1 offer security audit tests."""
 
 from connectors.tclk import _risk_ok, audit_offer, offer_allows, parse_frame
 
@@ -27,7 +27,7 @@ def test_specless_offer_is_skipped_without_optin():
     assert a["decision"] == "skip"
     assert a["risk"] == "risky"
     assert a["spec_missing"] is True
-    assert "(bos)" in a["reason"]
+    assert "(empty)" in a["reason"]
 
 
 def test_specless_offer_accepted_under_optin_but_flagged_watch():

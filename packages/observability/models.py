@@ -28,7 +28,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column, relationship
 
-# Portable JSON: SQLite test'te JSON, PostgreSQL production'da JSONB (test+prod uyumu)
+# Portable JSON: JSON in SQLite tests, JSONB in PostgreSQL (test/prod parity)
 JSONType = JSON().with_variant(JSONB, "postgresql")
 
 # pgvector support — if not available, JSONB fallback (to preserve the claim)
@@ -121,7 +121,7 @@ class UNTRUSTED(enum.StrEnum):
 
 
 # ----------------------------------------------------------------------------
-# Kimlik / hesap
+# Identity / account
 # ----------------------------------------------------------------------------
 class User(_UUIDMixin, _TimestampMixin, Base):
     __tablename__ = "users"
@@ -519,7 +519,7 @@ class ActionExecution(_UUIDMixin, _TimestampMixin, Base):
 
 
 # ----------------------------------------------------------------------------
-# Outbox — reliable queue (transactionel outbox pattern)
+# Outbox — reliable queue (transactional outbox pattern)
 # ----------------------------------------------------------------------------
 class OutboxMessage(_UUIDMixin, Base):
     __tablename__ = "outbox_messages"
@@ -597,7 +597,7 @@ class TclkFrameRow(_UUIDMixin, Base):
 
 
 class TclkOfferAuditRow(_UUIDMixin, Base):
-    """One security audit ("denetim") of an incoming tclk/1 offer.
+    """One security audit of an incoming tclk/1 offer.
 
     Written for EVERY offer the agent looks at — accepted or rejected — so the
     decision trail is complete and auditable. The deterministic verdict is always

@@ -127,7 +127,7 @@ class Settings(BaseSettings):
     # Claim radar: notify the owner the first time a locked deal on a real rail actually
     # completes (reveal posted) — i.e. the first real payout LUMI observes.
     TCLK_CLAIM_RADAR_ENABLED: bool = True
-    # --- Offer security audit ("denetim") -----------------------------------
+    # --- Offer security audit -----------------------------------------------
     # Every incoming offer is audited and persisted, accepted or not. These knobs
     # decide what the audit is allowed to ACCEPT.
     TCLK_AGENT_AUDIT_ENABLED: bool = True
@@ -140,6 +140,11 @@ class Settings(BaseSettings):
     TCLK_PRODUCE_PER_HOUR: int = 6  # hourly brake on LLM production calls
     TCLK_AGENT_MIN_TIER: str = "safe"  # ceiling of accepted audit risk: safe|watch|risky|dangerous
     TCLK_AGENT_ACCEPT_PER_HOUR: int = 6  # our own rate limit on public accept posts
+    # Validation offers (`val-*`) keep a lane of their own once the general cap is
+    # spent: they score +6 each, settle without escrow and need no reveal, and
+    # they are ~1 in 6 of the funded feed. Starving them to protect the general
+    # quota spends our cheapest scoring lane. 0 = no reserve (cap only).
+    TCLK_AGENT_VALIDATION_RESERVE: int = 0  # extra accept slots/h kept for validation offers
     # Room where an offer's `job` marker resolves to a real brief. A spec-less
     # offer whose pointer cannot be resolved here is refused rather than accepted
     # into a `no_answer` dead end.

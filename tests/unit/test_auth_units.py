@@ -58,7 +58,7 @@ async def test_rate_limiter_memory_fallback():
     rl = RateLimiter()
     rl._redis = None
     rl._redis_tried = True
-    # 2 istek izinli, 3. reddedilir
+    # 2 requests allowed, the 3rd is rejected
     assert await rl.check("k1", limit=2, window_seconds=60) is True
     assert await rl.check("k1", limit=2, window_seconds=60) is True
     assert await rl.check("k1", limit=2, window_seconds=60) is False

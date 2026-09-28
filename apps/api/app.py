@@ -946,7 +946,7 @@ async def tclk_market(user: dict = Depends(get_current_user)):
                 .group_by(TclkFrameRow.rail)
             )
         ).all()
-        lock_rails = {str(r or "(bos)"): int(c) for r, c in rails}
+        lock_rails = {str(r or "(empty)"): int(c) for r, c in rails}
         # Completed claims: deal slug = first 16 hex of the contract id (same
         # derivation as deal rooms) appearing with BOTH a lock and a reveal.
         slug = func.left(func.replace(func.lower(TclkFrameRow.contract), "0x", ""), 16)
@@ -976,7 +976,7 @@ async def tclk_market(user: dict = Depends(get_current_user)):
             for c in comp
         ]
         real_rails = {"flop-htlc", "x402", "ETH", "clk-htlc", "btc-ptlc"}
-        # --- denetim: security audit of the incoming offer stream ---
+        # --- Security audit of the incoming offer stream ---
         audits_total = (
             await s.execute(select(func.count()).select_from(TclkOfferAuditRow))
         ).scalar() or 0
@@ -1027,8 +1027,8 @@ async def tclk_market(user: dict = Depends(get_current_user)):
                 "total": int(audits_total),
                 "audited_24h": int(aud_24h),
                 "by_decision": {str(k): int(c) for k, c in aud_dec},
-                "by_risk": {str(k or "(bos)"): int(c) for k, c in aud_risk},
-                "jev_by_tier": {str(k or "(bos)"): int(c) for k, c in aud_tier},
+                "by_risk": {str(k or "(empty)"): int(c) for k, c in aud_risk},
+                "jev_by_tier": {str(k or "(empty)"): int(c) for k, c in aud_tier},
                 "min_tier": settings.TCLK_AGENT_MIN_TIER,
                 "accept_specless": bool(settings.TCLK_AGENT_ACCEPT_SPECLESS),
                 "accept_require_brief": bool(settings.TCLK_ACCEPT_REQUIRE_BRIEF),

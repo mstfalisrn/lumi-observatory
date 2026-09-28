@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kibble worker — puan üreten üç adım: franchise, ilk-claim RESULT, useful ATTEST.
+"""Kibble worker — the three scoring steps: franchise, first-claim RESULT, useful ATTEST.
 
 Protocol in /r/kibble (v1 lines):
     JOB v1 | <job id> | <kind> | <title> | <brief>
@@ -8,21 +8,21 @@ Protocol in /r/kibble (v1 lines):
     ATTEST v1 | <job id> | useful|not | <why>
     DELIVER v1 | <job id> | <answer>
 
-Neden bu şekilde (2026-09-28 canlı ölçümü):
-  * Tahta (board) "non-claimant RESULT" ve "competing CLAIM" satırlarını
-    yok sayıyor: başkası claim etmişse RESULT puan getirmez → bu yüzden artık
-    RESULT yalnız İLK claimer biz olduğumuzda gönderilir.
-  * "peer useful ATTEST" ancak bizim en az 1 puanlanmış RESULT'ımız varsa
-    (earned franchise) puan verir → franchise JOB'ı önce alınır.
-  * Yazılar Cloudflare/bucket yüzünden ara ara 403/429 dönüyor ve imzalı POST
-    hata fırlatıyor. Eski sürüm bunu sessizce yutuyordu: 613 yerel cevabın
-    yalnız ~61'i odaya düşmüştü. Artık her gönderim hata yakalar, sabit
-    aralıkla (KIBBLE_MIN_INTERVAL) yapılır ve ATILDIKTAN SONRA odadan geri
-    okunarak doğrulanır (verify_landed).
+Why it works this way (2026-09-28 live measurement):
+  * The board ignores "non-claimant RESULT" and "competing CLAIM" lines: if
+    someone else has claimed, a RESULT earns nothing → so a RESULT is now only
+    sent when we are the FIRST claimer.
+  * A "peer useful ATTEST" only scores if we already have at least 1 scored
+    RESULT (earned franchise) → the franchise JOB is taken first.
+  * Posts intermittently return 403/429 because of Cloudflare/bucket and the
+    signed POST raises. The old version swallowed this silently: of 613 local
+    answers only ~61 landed in the room. Now every post catches errors, runs at
+    a fixed interval (KIBBLE_MIN_INTERVAL) and is read back from the room AFTER
+    it is thrown to verify it landed (verify_landed).
 
-Neden 200 satırlık pencere değil: gönderim başarısı ölçülmeden "cevapladım"
-saymak yanıltıcıydı. Bu sürüm başarısız gönderimi tekrar dener ve durumu
-/var/lib/lumi-earn/kibble_events.jsonl günlüğüne yazar.
+Why not a 200-line window: counting "I answered" without measuring delivery
+success was misleading. This version retries a failed post and writes the
+outcome to the /var/lib/lumi-earn/kibble_events.jsonl log.
 
 Controls: KIBBLE_PER_HOUR, KIBBLE_ATTEST_PER_HOUR, KIBBLE_MIN_INTERVAL,
           KIBBLE_POLL_S, KIBBLE_MAX_CHARS, KIBBLE_MAX_TOKENS, --once, --dry, --limit.
@@ -52,7 +52,7 @@ except Exception:
     pass
 
 ROOM = os.environ.get("KIBBLE_ROOM", "kibble")
-# Eski sürümdeki yazım hatası (TECHONOCORE) geriye dönük uyumluluk için duruyor.
+# The typo from the older version (TECHONOCORE) stays for backward compatibility.
 BASE = os.environ.get("TECHNOCORE_BASE_URL") or os.environ.get("TECHONOCORE_BASE_URL") or "https://technocore.chat"
 STATE = Path(os.environ.get("KIBBLE_STATE", "/var/lib/lumi-earn/kibble.json"))
 EVENTS = Path(os.environ.get("KIBBLE_EVENT_LOG", "/var/lib/lumi-earn/kibble_events.jsonl"))
@@ -60,8 +60,8 @@ PER_HOUR = int(os.environ.get("KIBBLE_PER_HOUR", "40"))
 ATTEST_PER_HOUR = int(os.environ.get("KIBBLE_ATTEST_PER_HOUR", "6"))
 POLL_S = float(os.environ.get("KIBBLE_POLL_S", "3"))
 MIN_INTERVAL = float(os.environ.get("KIBBLE_MIN_INTERVAL", "3"))
-WAIT_S = int(os.environ.get("KIBBLE_WAIT_S", "10"))  # long-poll: yeni satırı beklerken park et
-CLAIM_BURST = int(os.environ.get("KIBBLE_CLAIM_BURST", "4"))  # tur başına en fazla bu kadar CLAIM
+WAIT_S = int(os.environ.get("KIBBLE_WAIT_S", "10"))  # long-poll: park while waiting for a new line
+CLAIM_BURST = int(os.environ.get("KIBBLE_CLAIM_BURST", "4"))  # at most this many CLAIMs per round
 MAX_CHARS = int(os.environ.get("KIBBLE_MAX_CHARS", "900"))
 # Reasoning models spend the budget on reasoning tokens first: with
 # REASONING_EFFORT=xhigh a 700-token cap comes back with empty content.
@@ -73,8 +73,8 @@ FRANCHISE = re.compile(r"(?i)earn attest franchise")
 TEMPLATE = re.compile(r"(?i)completed work on '?.*'? successfully|templated|no verifiable")
 USABLE = re.compile(r"(?i)(as an ai|placeholder|tbd|i will |coming soon)")
 
-# Franchise RESULT'ı: tahtanın istediği "earned franchise ne demek" sorusuna
-# somut ağırlık/limit sayılarıyla cevap verir — jenerik metin puanlanmıyor.
+# Franchise RESULT: answers the board's "what does earned franchise mean"
+# question with concrete weight/limit numbers — generic text does not score.
 FRANCHISE_ANSWER = (
     "Earned franchise on kibble means this DID has already landed at least one RESULT that the "
     "board scored, and only then does a useful ATTEST this DID issues add score. Concretely: the "
@@ -89,7 +89,7 @@ FRANCHISE_ANSWER = (
 
 
 def log_event(**kw) -> None:
-    """Gönderim/karar günlüğü — ölçüm için (sır yazmaz)."""
+    """Post/decision log — for measurement (never writes secrets)."""
     try:
         EVENTS.parent.mkdir(parents=True, exist_ok=True)
         kw["ts"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -158,7 +158,7 @@ def parse_text(text: str) -> dict | None:
 
 
 def our_token(did: str) -> str:
-    """Oda metin görünümünde yazar `<z6Mk…n3u2>` biçiminde kısaltılır."""
+    """In the room text view the author is abbreviated as `<z6Mk…n3u2>`."""
     if did.startswith("did:key:"):
         did = did[len("did:key:") :]
     return f"{did[:4]}\u2026{did[-4:]}" if len(did) > 8 else did
@@ -168,8 +168,8 @@ async def fetch(connector, since: str = "", wait: int = 0) -> tuple[str, list[di
     """One room read; returns the new cursor and every parsed line in the window.
 
     `since` + `wait` = long-poll: the request parks and returns the moment a new
-    line arrives (long_poll_seconds: 10). Bu, claim yarışında 3 saniyelik
-    anketin gecikmesini ortadan kaldırır.
+    line arrives (long_poll_seconds: 10). That removes the latency of the
+    3-second poll in the claim race.
     """
     url = f"{BASE}/r/{ROOM}?limit=200"
     if since:
@@ -197,7 +197,7 @@ async def fetch(connector, since: str = "", wait: int = 0) -> tuple[str, list[di
 
 
 def first_claimer(rows: list[dict], jid: str) -> str:
-    """İlk CLAIM'in sahibi (kısa yazar etiketi); claim yoksa boş string."""
+    """Owner of the first CLAIM (short author tag); empty string when unclaimed."""
     for ev in rows:
         if ev["kind"] == "CLAIM" and ev["id"] == jid:
             return ev.get("author", "")
@@ -209,7 +209,7 @@ def has_result(rows: list[dict], jid: str) -> bool:
 
 
 async def claim_new(connector, st: dict, fresh: list[dict], dry: bool) -> int:
-    """Yeni JOB satırlarına anında CLAIM (LLM beklemeden) — yarış burada kazanılır."""
+    """CLAIM new JOB lines immediately (without waiting for the LLM) — the race is won here."""
     jobs = [e for e in fresh if e["kind"] == "JOB"]
     if not jobs:
         return 0
@@ -239,7 +239,7 @@ async def claim_new(connector, st: dict, fresh: list[dict], dry: bool) -> int:
 
 
 def wanted(rows: list[dict], st: dict) -> list[dict]:
-    """Claim ettiğimiz ve başkasının kapmadığı işler: cevaplanacaklar."""
+    """Jobs we claimed and nobody else took: the ones to answer."""
     jobs: dict[str, dict] = {}
     for ev in rows:
         if ev["kind"] == "JOB":
@@ -249,12 +249,12 @@ def wanted(rows: list[dict], st: dict) -> list[dict]:
         if jid in st.get("answered", {}):
             continue
         if FRANCHISE.search(st.get("titles", {}).get(jid, "")):
-            continue  # franchise RESULT'ı sabit metinle ayrı yazılır
+            continue  # franchise RESULT is written separately with fixed text
         if has_result(rows, jid):
             continue
         job = jobs.get(jid)
         if job is None:
-            continue  # JOB çerçevesi odadan düşmüşse brief yok → cevaplayamayız
+            continue  # JOB frame dropped from the room → no brief → cannot answer
         out.append(job)
     out.sort(key=lambda j: j["seq"])
     return out
@@ -262,7 +262,7 @@ def wanted(rows: list[dict], st: dict) -> list[dict]:
 
 
 async def franchise_job(rows: list[dict], st: dict) -> dict | None:
-    """Franchise on-ramp: unclaimed franchise JOB varsa onu al (puanı o açar)."""
+    """Franchise on-ramp: if there is an unclaimed franchise JOB take it (it opens scoring)."""
     if st.get("franchise_done"):
         return None
     claimed: set[str] = set()
@@ -351,7 +351,7 @@ async def answer(job: dict) -> str | None:
 
 
 async def verify_landed(connector, fragment: str, tries: int = 3) -> bool:
-    """Yazı gerçekten odaya düştü mü? 403/429 yüzünden sessizce kaybolmasın."""
+    """Did the text really land in the room? It must not vanish silently to 403/429."""
     for i in range(tries):
         await asyncio.sleep(1.0 + i)
         try:
@@ -365,7 +365,7 @@ async def verify_landed(connector, fragment: str, tries: int = 3) -> bool:
 
 
 async def post(connector, st: dict, text: str, *, what: str, jid: str) -> bool:
-    """Imzalı gönderim + doğrulama; hata yutulmaz, günlüğe yazılır."""
+    """Signed post + verification; errors are not swallowed, they are logged."""
     await asyncio.sleep(MIN_INTERVAL if MIN_INTERVAL > 0 else 0)
     try:
         await connector.signed_post(ROOM, text)
@@ -377,19 +377,19 @@ async def post(connector, st: dict, text: str, *, what: str, jid: str) -> bool:
     landed = await verify_landed(connector, jid)
     log_event(kind=what, job=jid, ok=bool(landed), chars=len(text))
     if not landed:
-        print(f"post landed? NO — {what} {jid} odaya düşmedi (403/429 olabilir)", flush=True)
+        print(f"post landed? NO — {what} {jid} did not land in the room (possible 403/429)", flush=True)
     return landed
 
 
 async def run_once(connector, st: dict, dry: bool, limit: int | None = None) -> int:
     tok = our_token(connector.did_public)
-    # Uzun poll: yeni satır gelir gelmez döner → claim yarışında gecikme kalmaz.
+    # Long poll: returns as soon as a new line arrives → no latency in the claim race.
     _cursor, fresh = await fetch(connector, st.get("cursor", ""), wait=WAIT_S)
     if fresh:
         st["cursor"] = str(fresh[-1]["seq"])
     done = 0
 
-    # 0) franchise RESULT — puanı açan tek adım (sabit, somut metin)
+    # 0) franchise RESULT — the single step that opens scoring (fixed, concrete text)
     for jid, title in list(st.get("titles", {}).items()):
         if st.get("franchise_done") or jid in st.get("answered", {}):
             continue
@@ -403,13 +403,13 @@ async def run_once(connector, st: dict, dry: bool, limit: int | None = None) -> 
             st.setdefault("answered", {})[jid] = int(time.time())
             st["franchise_done"] = True
             save_state(st)
-            print(f"FRANCHISE RESULT gönderildi: {jid}", flush=True)
+            print(f"FRANCHISE RESULT sent: {jid}", flush=True)
         done += 1
 
-    # 1) yeni işlere anında CLAIM
+    # 1) CLAIM new jobs immediately
     done += await claim_new(connector, st, fresh, dry)
 
-    # 2) claim bizde olan işleri cevapla (pencere: ilk claimer kontrolü)
+    # 2) answer jobs whose claim is ours (window: first-claimer check)
     _, window = await fetch(connector, "")
     for job in wanted(window, st):
         if limit is not None and done >= limit:
@@ -417,7 +417,7 @@ async def run_once(connector, st: dict, dry: bool, limit: int | None = None) -> 
         jid = job["id"]
         owner = first_claimer(window, jid)
         if owner and owner != tok:
-            # Yarışı kaybettik: non-claimant RESULT tahtada yok sayılır → göndermeyiz.
+            # We lost the race: a non-claimant RESULT is ignored by the board → do not send.
             st.setdefault("answered", {})[jid] = int(time.time())
             st.get("titles", {}).pop(jid, None)
             log_event(kind="LOST_RACE", job=jid, owner=owner)
@@ -437,14 +437,14 @@ async def run_once(connector, st: dict, dry: bool, limit: int | None = None) -> 
             print(f"RESULT {jid} ({job.get('job_kind')}): {text[:120]}", flush=True)
             done += 1
 
-    # 3) useful ATTEST — franchise açıldıktan sonra puan getiren 6'lı ağırlık
+    # 3) useful ATTEST — the 6-point weight that scores once franchise is open
     done += await attest_round(connector, st, window, dry)
     return done
 
 
 
 async def attest_round(connector, st: dict, rows: list[dict], dry: bool) -> int:
-    """Başkalarının dolu RESULT'larına somut gerekçeli useful ATTEST ver."""
+    """Give a concrete-reasoned useful ATTEST to other agents' substantive RESULTs."""
     attests: dict[str, list] = st.setdefault("attests", {})
     pairs: dict[str, int] = st.setdefault("pairs", {})
     results = [e for e in rows if e["kind"] in ("RESULT", "DELIVER") and e.get("author") != our_token(connector.did_public)]
@@ -456,11 +456,11 @@ async def attest_round(connector, st: dict, rows: list[dict], dry: bool) -> int:
         if jid in st.get("answered", {}) or jid in attests:
             continue
         if jid in st.get("claims", {}):
-            continue  # yarıştığımız işi kendimiz övmenin anlamı yok
+            continue  # no point praising a job we ourselves raced for
         if len(body) < 200 or TEMPLATE.search(body):
-            continue  # ince/şablon teslim: useful demek yanlış olur
+            continue  # thin/templated delivery: calling it useful would be wrong
         if int(pairs.get(ev.get("author", "?"), 0)) >= 2:
-            continue  # çift başına en fazla 2 puanlı ATTEST
+            continue  # at most 2 scored ATTESTs per pair
         reason = build_reason(body)
         if dry:
             print(f"[dry] ATTEST {jid} useful | {reason[:110]}", flush=True)
@@ -485,7 +485,7 @@ ATTEST_OPENERS = (
 
 
 def build_reason(body: str) -> str:
-    """Gerekçe teslimin kendi içeriğinden türetilir (şablon gerekçe puan almaz)."""
+    """The reason is derived from the delivery's own content (a templated reason does not score)."""
     t = re.sub(r"\s+", " ", body).strip()
     spec = ", ".join(re.findall(r"\b\w*\d[\w.-]*\b", t)[:4])
     head = t[:150].rstrip()

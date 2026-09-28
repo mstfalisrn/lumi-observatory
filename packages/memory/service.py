@@ -22,7 +22,7 @@ VERIFIED_VALUE = "verified"
 
 
 def _escape_ilike(q: str) -> str:
-    """Wildcard enjeksiyonunu engelle: % _ \\ escape."""
+    """Block wildcard injection: escape the LIKE wildcards % _ and the \\ escape char."""
     return q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
@@ -143,7 +143,7 @@ class MemoryService:
         # Filter verified and active records
         if verified_only:
             if status:
-                # status explicit ise onu filtrele ama verified gerektir
+                # if status is explicit, filter on it but still require verified
                 stmt = stmt.where(MemoryItem.status == status)
                 stmt = stmt.where(MemoryItem.verification_status == VERIFIED_VALUE)
             else:
@@ -173,9 +173,9 @@ class MemoryService:
 
     async def vector_search(self, embedding: list[float], limit: int = 10) -> list[MemoryItem]:
         """Search with pgvector cosine similarity — JSON fallback if pgvector is not installed (not ilike)."""
-        # First pgvector 시도, otherwise return empty (JSON embedding cosine expensive)
+        # Try pgvector first, otherwise return empty (JSON embedding cosine is expensive)
         try:
-            # ham SQL: SELECT * FROM memory_items ORDER BY embedding_vector <=> :vec LIMIT :limit
+            # raw SQL: SELECT * FROM memory_items ORDER BY embedding_vector <=> :vec LIMIT :limit
             # Filter only verified and active records
             from sqlalchemy import text as sql_text
             now = datetime.now(UTC)
@@ -236,8 +236,8 @@ class MemoryService:
     async def auto_promote_candidates(self, threshold: float | None = None, min_runs: int = 2) -> int:
         """C3: automatically approve high-confidence candidates.
 
-        Kural: confidence > threshold (default 0.85) ve sistemde en az min_runs
-        if a successful run exists -> CANDIDATE -> AUTO_APPROVED.
+        Rule: confidence > threshold (default 0.85) and at least min_runs in the
+        system with a successful run -> CANDIDATE -> AUTO_APPROVED.
         Relationship is verified by overall completed run count, not by run count.
         (simple and deterministic; no FK). Called periodically by Scheduler.
         """

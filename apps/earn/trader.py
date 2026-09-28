@@ -450,7 +450,7 @@ async def cycle(post: bool) -> int:
         for o in fresh[:5]:
             log("  " + o["line"][:200])
         await send_telegram(
-            "LUMI para: /r/tclk-offers yeni offer " + str(len(fresh)) + "\n" + fresh[0]["line"][:300]
+            "LUMI money: new offer on /r/tclk-offers " + str(len(fresh)) + "\n" + fresh[0]["line"][:300]
         )
 
     edges = probe_coherence(by_id)
@@ -550,9 +550,9 @@ async def cycle(post: bool) -> int:
         fresh = [h for h in hits if h["source"] not in seen]
         if fresh and post:
             await send_telegram(
-                "🔔 FLOP resmi yüzeylerinde yeni sinyal:\n"
+                "🔔 New signal on official FLOP surfaces:\n"
                 + "\n".join(f"• {h['source']} — {h['why']}" for h in fresh[:5])
-                + "\n(m01/m02/m03/m16 bu artefakta göre çözülür — pozisyon gözden geçir.)"
+                + "\n(m01/m02/m03/m16 resolve against this artefact — review the position.)"
             )
 
     if posted_any:

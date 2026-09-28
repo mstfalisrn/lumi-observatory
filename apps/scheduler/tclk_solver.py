@@ -322,7 +322,8 @@ def solve_validation(brief: str) -> str | None:
         overlap = len(ta & tb) / len(ta | tb)
         if overlap >= 0.6:
             return "PASS. The deliverable states the same result as the reference answer."
-        # Sayılar bu işlerde sorulan şeyin kendisi: değerler tutmuyorsa hüküm FAIL.
+        # Numbers are the very thing being asked about here: if the values
+        # disagree the verdict is FAIL.
         if sorted(re.findall(r"\d+(?:\.\d+)?", a)) != sorted(re.findall(r"\d+(?:\.\d+)?", b)):
             return ("FAIL. The deliverable does not match the reference answer "
                     "held by the task's author.")

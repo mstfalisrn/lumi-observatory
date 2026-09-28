@@ -8,6 +8,7 @@ import re
 import time
 from datetime import UTC, datetime
 
+from connectors.tclk import accept_room, offer_family
 from connectors.technocore import TechnocoreConnector
 from observability.config import settings
 
@@ -493,11 +494,15 @@ class AgentScorer:
         if audit["decision"] == "accept" and settings.TCLK_ACCEPT_REQUIRE_BRIEF:
             if not (await self._tclk_brief(frame)).strip():
                 audit["decision"] = "skip"
-                audit["reason"] = "spec yok — kabul edilmedi (slot/kota korunur)"
+                audit["reason"] = "no spec — not accepted (slot/quota preserved)"
         audit["checks"]["require_brief"] = bool(settings.TCLK_ACCEPT_REQUIRE_BRIEF)
-        if audit["decision"] == "accept" and not self._tclk_rate_ok():
+        family = offer_family(frame)
+        audit["checks"]["family"] = family
+        if audit["decision"] == "accept" and not self._tclk_rate_ok(family):
             audit["decision"] = "skip"
-            audit["reason"] = f"rate limit {settings.TCLK_AGENT_ACCEPT_PER_HOUR}/h reached"
+            audit["reason"] = (
+                f"rate limit {settings.TCLK_AGENT_ACCEPT_PER_HOUR}/h reached (lane {family})"
+            )
         self._tclk_prune_active()
         if audit["decision"] == "accept" and len(self._tclk_active) >= settings.TCLK_AGENT_MAX_ACTIVE:
             audit["decision"] = "skip"
@@ -635,14 +640,14 @@ class AgentScorer:
             from connectors.agent_alert import send_telegram_text
 
             mark = {
-                "delivered": "✅ teslim edildi",
-                "no_answer": "⚠️ çözülemedi (tahmin gönderilmedi)",
-                "error": "❌ teslim gönderilemedi",
+                "delivered": "✅ delivered",
+                "no_answer": "⚠️ could not solve (no guess sent)",
+                "error": "❌ delivery could not be posted",
             }[outcome]
-            tail = f" — cevap: {answer[:120]}" if outcome == "delivered" and answer else ""
+            tail = f" — answer: {answer[:120]}" if outcome == "delivered" and answer else ""
             await send_telegram_text(
-                f"🤝 LUMI tclk görevi kabul etti: {frame.amount} {frame.asset or '?'} — "
-                f"contract {contract[:18]}…, iş: {_tclk_spec_short(frame)}\n{mark}{tail}"
+                f"🤝 LUMI accepted the tclk task: {frame.amount} {frame.asset or '?'} — "
+                f"contract {contract[:18]}…, work: {_tclk_spec_short(frame)}\n{mark}{tail}"
             )
         except Exception as e:
             log.warning("tclk accept post failed: %s", type(e).__name__)
@@ -887,21 +892,22 @@ class AgentScorer:
         ]:
             self._tclk_active.pop(key, None)
 
-    def _tclk_rate_ok(self) -> bool:
+    def _tclk_rate_ok(self, family: str = "") -> bool:
         """Hourly ceiling on PUBLIC accept posts (rolling window, in-memory).
 
         Accepting is a public commitment, so the cap is our own brake independent
         of how loud the market gets. A non-positive cap disables accepting.
+        Validation offers keep a reserve of their own on top of the cap: they are
+        the cheapest scoring lane and must not be spent on general traffic.
         """
         cap = int(settings.TCLK_AGENT_ACCEPT_PER_HOUR or 0)
-        if cap <= 0:
-            return False
         now = time.time()
         self._tclk_accept_times = [t for t in self._tclk_accept_times if now - t < 3600]
-        return len(self._tclk_accept_times) < cap
+        reserve = int(settings.TCLK_AGENT_VALIDATION_RESERVE or 0) if family == "validation" else 0
+        return accept_room(cap, len(self._tclk_accept_times), reserve)
 
     async def _tclk_record_audit(self, session, frame, room: str, seq: int, audit: dict, jev: dict) -> None:
-        """Persist one offer audit ("denetim") row.
+        """Persist one offer audit row.
 
         Never raises: a bookkeeping miss must not stall the surveillance loop or
         poison the caller's session, so every failure is swallowed and logged at
@@ -1249,10 +1255,10 @@ class AgentScorer:
             try:
                 from connectors.agent_alert import send_telegram_text
 
-                work = f" — teslim: {answer[:160]}" if answer.strip() else " — teslim üretilemedi"
+                work = f" — delivered: {answer[:160]}" if answer.strip() else " — nothing produced to deliver"
                 await send_telegram_text(
                     f"💰 LUMI escrow claim: {pending.get('amount') or '?'} "
-                    f"{pending.get('asset') or '?'} — deal odası {deal_room}{work}"
+                    f"{pending.get('asset') or '?'} — deal room {deal_room}{work}"
                 )
             except Exception as e:
                 log.warning("tclk claim telegram failed: %s", type(e).__name__)
@@ -1275,18 +1281,18 @@ class AgentScorer:
                 )
             ).all()
             parts = " ".join(f"{k}={c}" for k, c in sorted(rows, key=lambda r: -r[1]))
-            return f"24h tclk: {parts or 'veri yok'}"
+            return f"24h tclk: {parts or 'no data'}"
         except Exception as e:
             log.debug("tclk digest failed: %s", type(e).__name__)
-            return "24h tclk: veri yok"
+            return "24h tclk: no data"
 
     async def _tclk_alert_claim(self, slug16, rail, ours: bool = False) -> None:
         from connectors.agent_alert import send_telegram_text
 
-        who = "LUMI kendi görevi" if ours else "dış ajan"
+        who = "LUMI's own task" if ours else "an external agent"
         msg = (
-            f"🏁 tclk CLAIM RADAR: *{rail}* rail'inde gerçek ödeme tamamlandı "
-            f"({who}) — deal odası `mb-p-tclk-{slug16}`"
+            f"🏁 tclk CLAIM RADAR: a real payment settled on rail *{rail}* "
+            f"({who}) — deal room `mb-p-tclk-{slug16}`"
         )
         ok = await send_telegram_text(msg)
         if ok and ours:
@@ -1332,7 +1338,7 @@ _TCLK_JUNK_MARKERS = ("<room>|<nonce>|<text>",)
 
 
 def _tclk_answer_usable(answer: str) -> tuple[bool, str]:
-    """Is this solver output a real deliverable? (kalite kapısı, bool + reason)
+    """Is this solver output a real deliverable? (quality gate, bool + reason)
 
     An answer is refused when it is empty, very short, carries no digits, is a
     template/bot artefact, or is refused by the producer's own usable() screen.
@@ -1340,16 +1346,16 @@ def _tclk_answer_usable(answer: str) -> tuple[bool, str]:
     """
     t = (answer or "").strip()
     if not t:
-        return False, "bos"
+        return False, "empty"
     if len(t) < _TCLK_MIN_ANSWER_CHARS:
-        return False, f"cok kisa ({len(t)}<{_TCLK_MIN_ANSWER_CHARS})"
+        return False, f"too short ({len(t)}<{_TCLK_MIN_ANSWER_CHARS})"
     low = t.lower()
     if any(m in low for m in _TCLK_JUNK_MARKERS):
-        return False, "sablon cevap"
+        return False, "template answer"
     if low in _TCLK_JUNK_ANSWERS or low.startswith("as an ai"):
-        return False, f"junk cevap ({low[:24]})"
+        return False, f"junk answer ({low[:24]})"
     if not any(ch.isdigit() for ch in t):
-        return False, "rakam yok"
+        return False, "no digits"
     try:  # in the image the scheduler is a package (apps.scheduler.*)
         from apps.scheduler.tclk_producer import usable as _usable
     except ImportError:  # local runs / tests import it as a top-level module
@@ -1358,7 +1364,7 @@ def _tclk_answer_usable(answer: str) -> tuple[bool, str]:
         except ImportError:
             _usable = None  # type: ignore[assignment]
     if _usable is not None and not _usable(t):
-        return False, "usable() reddetti"
+        return False, "usable() rejected"
     return True, "ok"
 
 

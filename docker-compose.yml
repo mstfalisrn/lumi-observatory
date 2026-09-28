@@ -103,12 +103,13 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
       TELEGRAM_GROUP_ENABLED: ${TELEGRAM_GROUP_ENABLED:-false}
-      # tclk denetim politikasi — panel bu degerleri Scheduler ile ayni gostersin
+      # tclk audit policy — the panel must show these values the same as the Scheduler
       TCLK_AGENT_AUDIT_ENABLED: ${TCLK_AGENT_AUDIT_ENABLED:-true}
       TCLK_AGENT_ACCEPT_SPECLESS: ${TCLK_AGENT_ACCEPT_SPECLESS:-false}
       TCLK_ACCEPT_REQUIRE_BRIEF: ${TCLK_ACCEPT_REQUIRE_BRIEF:-true}
       TCLK_AGENT_MIN_TIER: ${TCLK_AGENT_MIN_TIER:-safe}
       TCLK_AGENT_ACCEPT_PER_HOUR: ${TCLK_AGENT_ACCEPT_PER_HOUR:-6}
+      TCLK_AGENT_VALIDATION_RESERVE: ${TCLK_AGENT_VALIDATION_RESERVE:-0}
       TCLK_AGENT_PRODUCE: ${TCLK_AGENT_PRODUCE:-true}
       TCLK_PRODUCE_PER_HOUR: ${TCLK_PRODUCE_PER_HOUR:-6}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
@@ -215,6 +216,7 @@ services:
       TCLK_ACCEPT_REQUIRE_BRIEF: ${TCLK_ACCEPT_REQUIRE_BRIEF:-true}
       TCLK_AGENT_MIN_TIER: ${TCLK_AGENT_MIN_TIER:-safe}
       TCLK_AGENT_ACCEPT_PER_HOUR: ${TCLK_AGENT_ACCEPT_PER_HOUR:-6}
+      TCLK_AGENT_VALIDATION_RESERVE: ${TCLK_AGENT_VALIDATION_RESERVE:-0}
       TCLK_AGENT_PRODUCE: ${TCLK_AGENT_PRODUCE:-true}
       TCLK_PRODUCE_PER_HOUR: ${TCLK_PRODUCE_PER_HOUR:-6}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
@@ -315,12 +317,13 @@ services:
       TCLK_ACCEPT_REQUIRE_BRIEF: ${TCLK_ACCEPT_REQUIRE_BRIEF:-true}
       TCLK_AGENT_MIN_TIER: ${TCLK_AGENT_MIN_TIER:-safe}
       TCLK_AGENT_ACCEPT_PER_HOUR: ${TCLK_AGENT_ACCEPT_PER_HOUR:-6}
+      TCLK_AGENT_VALIDATION_RESERVE: ${TCLK_AGENT_VALIDATION_RESERVE:-0}
       TCLK_AGENT_PRODUCE: ${TCLK_AGENT_PRODUCE:-true}
       TCLK_PRODUCE_PER_HOUR: ${TCLK_PRODUCE_PER_HOUR:-6}
       TCLK_CLAIM_RADAR_ENABLED: ${TCLK_CLAIM_RADAR_ENABLED:-true}
       # Room where an offer's `job` marker resolves to a real brief.
       TCLK_JOB_ROOM: ${TCLK_JOB_ROOM:-kibble}
-      # Token muhasebesinde bu çağrıları kimin yaktığı görünsün (llm_usage.service).
+      # So token accounting shows who burns these calls (llm_usage.service).
       LUMI_SERVICE: lumi-scheduler
       EVALUATOR_LLM_ENABLED: ${EVALUATOR_LLM_ENABLED:-true}
       CONNECTOR_ALLOWED_HOSTS: ${CONNECTOR_ALLOWED_HOSTS:-}
@@ -372,9 +375,9 @@ services:
       retries: 5
     networks: [lumi_internal]
 
-  # ------------------------------------------------------ Canlı günlük (salt okunur)
-  # Ne yapıyor sorusunu tek okunabilir sayfada yanıtlar: LLM kararları ve Jev
-  # kararları ayrı bölümlerde. Yalnızca SELECT çalıştırır.
+  # ------------------------------------------------------ Live log (read-only)
+  # Answers "what is it doing" on one readable page: LLM decisions and Jev
+  # decisions in separate sections. Runs SELECT only.
   lumi-logs:
     build:
       context: .

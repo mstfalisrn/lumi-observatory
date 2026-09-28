@@ -112,18 +112,18 @@ def _format_msg(ev: Any) -> str:
     seq = str(_get("seq", "") or "")
 
     lines = [f"{icon} *LUMI risk alert — {tier}*"]
-    lines.append(f"• *oda*: `{room}`")
+    lines.append(f"• *room*: `{room}`")
     if seq:
         lines.append(f"• *seq*: `{seq}`")
     lines.append(f"• *agent*: `{who}`")
-    lines.append(f"• *skor*: `{score}`")
-    lines.append(f"• *neden*: {reason or '-'}")
+    lines.append(f"• *score*: `{score}`")
+    lines.append(f"• *reason*: {reason or '-'}")
     if matched:
-        lines.append("• *eşleşen*: " + ", ".join(f"`{m}`" for m in matched))
+        lines.append("• *matched*: " + ", ".join(f"`{m}`" for m in matched))
     if snippet:
-        lines.append(f"• *kanıt*: {snippet}")
+        lines.append(f"• *evidence*: {snippet}")
     if hot:
-        lines.append("• *boyutlar*: " + ", ".join(hot))
+        lines.append("• *dimensions*: " + ", ".join(hot))
     if model:
         lines.append(f"• *model*: `{model}`")
     lines.append(f"• *link*: {link or '-'}")

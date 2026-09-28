@@ -134,15 +134,15 @@ def view(candles: list[dict]) -> tuple[str, str]:
     """(side, why) from price vs the 20-day mean and 7-day momentum."""
     closes = [float(c["c"]) for c in candles if float(c.get("c") or 0) > 0]
     if len(closes) < 200:
-        return "flat", f"yetersiz veri ({len(closes)} saat)"
+        return "flat", f"insufficient data ({len(closes)} bars)"
     px = closes[-1]
     mean20 = sum(closes[-480:]) / len(closes[-480:])
     mom7 = px / closes[-168] - 1 if len(closes) >= 168 else 0.0
     if px > mean20 and mom7 > 0:
-        return "buy", f"px {px:.2f} > 20g ort {mean20:.2f}, 7g momentum {mom7*100:+.2f}%"
+        return "buy", f"px {px:.2f} > 20d avg {mean20:.2f}, 7d momentum {mom7*100:+.2f}%"
     if px < mean20 and mom7 < 0:
-        return "sell", f"px {px:.2f} < 20g ort {mean20:.2f}, 7g momentum {mom7*100:+.2f}%"
-    return "flat", f"px {px:.2f} vs 20g ort {mean20:.2f}, 7g {mom7*100:+.2f}% — kenarda kal"
+        return "sell", f"px {px:.2f} < 20d avg {mean20:.2f}, 7d momentum {mom7*100:+.2f}%"
+    return "flat", f"px {px:.2f} vs 20d avg {mean20:.2f}, 7d {mom7*100:+.2f}% — stay flat"
 
 
 async def read_room(c, room: str, since: int, wait: int = 0) -> tuple[int, str]:

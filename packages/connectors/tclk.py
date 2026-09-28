@@ -390,10 +390,45 @@ def offer_difficulty(frame: TclkFrame) -> int:
     return int(m.group(1)) if m else 0
 
 
+# The funded feed labels every offer with a family (task | validation | inference);
+# the frame itself does not, but the job id it points at carries the same label.
+_LANE_RES = (
+    ("validation", re.compile(r"(?:^|[/\s|])val-[0-9a-f]{6,}")),
+    ("inference", re.compile(r"(?:^|[/\s|])inf-[0-9a-f]{6,}")),
+)
+
+
+def offer_family(frame: TclkFrame) -> str:
+    """Lane an offer belongs to: ``validation`` | ``inference`` | ``task``.
+
+    The lanes do not price the same way — a validation offer scores a flat +6 and
+    settles with a one-line verdict, while a task carries a deliverable — so
+    policy (accept quota, priority) needs to see which one it is holding.
+    """
+    _proto, job_id = offer_job_pointer(frame)
+    raw = f"{job_id} {offer_raw_spec(frame)}"
+    for name, pattern in _LANE_RES:
+        if pattern.search(raw):
+            return name
+    return "task"
+
+
+def accept_room(cap: int, used: int, reserve: int = 0) -> bool:
+    """Is there room for one more public accept? ``reserve`` widens the cap.
+
+    ``cap`` is our own brake on public accept posts (non-positive disables
+    accepting entirely). ``reserve`` adds lane slots *on top of* the cap so a
+    cheap, high-scoring lane cannot be starved by general traffic.
+    """
+    if cap <= 0:
+        return False
+    return used < cap + max(0, reserve)
+
+
 def spec_short(frame: TclkFrame) -> str:
     """Short normalized spec for logs/alerts (never includes secrets)."""
     s = offer_spec(frame)
-    return s[:48] if s else "(spec yok)"
+    return s[:48] if s else "(no spec)"
 
 
 def ref_matches(a: str, b: str) -> bool:
@@ -490,12 +525,12 @@ def offer_allows(
     # overwhelming majority of this market) pass ONLY when the operator opts in;
     # they then map onto our default capability: the read-only market digest.
     if not any(w in spec for w in want) and not accept_specless:
-        return False, f"task not in capabilities: {spec[:60] or '(bos)'}"
+        return False, f"task not in capabilities: {spec[:60] or '(empty)'}"
     return True, "ok"
 
 
 # ---------------------------------------------------------------------------
-# Offer security audit ("denetim")
+# Offer security audit
 # ---------------------------------------------------------------------------
 # Risk ranks are ordered least→most dangerous; an operator sets the highest rank
 # they are willing to accept (TCLK_AGENT_MIN_TIER).
@@ -607,10 +642,10 @@ def audit_offer(
     if spec and not any(w in spec for w in want):
         return out("skip", "risky", f"task not in capabilities: {spec[:60]}")
     if not spec and not accept_specless:
-        return out("skip", "risky", "task not in capabilities: (bos)")
+        return out("skip", "risky", "task not in capabilities: (empty)")
 
     # Everything hard-checked and clean. A spec-less offer stays "watch" — we
     # accept it under policy, but the missing spec is still recorded as risk.
     if not spec:
-        return out("accept", "watch", "ok (spec yok — varsayilan is: market digest)")
+        return out("accept", "watch", "ok (no spec — default task: market digest)")
     return out("accept", "safe", "ok")

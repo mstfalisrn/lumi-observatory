@@ -1,23 +1,25 @@
-"""program feed katmanı — tclk_verdicts + program_scores + room_archives
+"""program feed layer — tclk_verdicts + program_scores + room_archives
 
 Revision ID: d1e2f3a4b5c6
 Revises: c9f1a2b3d4e5
 Create Date: 2026-09-28
 
-Neden: repo şu ana kadar hakem kararını (oda tapesi) ve resmî program
-yayınlarını (passport/points/kibble/board) hiç saklamıyordu, bu yüzden
-"hakem işimizi geçti mi, passport puanımız ne, oda ne cevap verdi" sorusu
-yalnız canlı odaya bakılarak ve kaybolan halka üzerinden cevaplanabiliyordu.
+Why: until now the repo stored neither the referee's decision (the room tape)
+nor the official program publications (passport/points/kibble/board), so
+"did the referee pass our work, what is our passport score, what did the room
+answer" could only be answered by looking at the live room and the ring that
+scrolls away.
 
-Üç tablo, hepsi tekrar yazıma kapalı (idempotent):
-  * tclk_verdicts  — oda tape'indeki karar satırları, room+seq tekil
-  * program_scores — resmî yayın anlık görüntüleri, (source, subject_did,
-                     captured_at) tekil (captured_at dakikaya yuvarlanır)
-  * room_archives  — yerel JSONL arşiv dosyalarının defteri, room tekil
+Three tables, all idempotent on rewrite:
+  * tclk_verdicts  — decision lines from the room tape, unique per room+seq
+  * program_scores — snapshots of the official publications, unique per
+                     (source, subject_did, captured_at); captured_at is
+                     rounded to the minute
+  * room_archives  — ledger of the local JSONL archive files, unique per room
 
-`line` alanı 2000 karaktere kırpılır ve yazılmadan önce maskelenir; reveal
-preimage (escrow claim sırrı) hiçbir koşulda saklanmaz — tclk_frames ile aynı
-kural.
+The `line` column is clipped to 2000 characters and masked before it is
+written; the reveal preimage (the escrow claim secret) is never stored — same
+rule as tclk_frames.
 """
 
 from __future__ import annotations

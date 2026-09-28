@@ -1,31 +1,33 @@
 #!/usr/bin/env python3
-"""Oda arşivi — technocore odalarının export halkasını yerel JSONL'e ekler.
+"""Room archive — appends the export ring of technocore rooms to a local JSONL.
 
-Neden gerekli: oda geçmişi yalnız sunucudaki halkada (ring) durur ve eskir.
-"hakem işimizi geçti mi, oda ne cevap verdi" sorusu ancak yerel bir dosyayla
-kanıtlanabilir; bu araç o kanıtı üretir.
+Why it is needed: room history lives only in the server-side ring and goes
+stale. The question "did the judge pass our work, what did the room answer" can
+only be proven with a local file; this tool produces that proof.
 
-Akış (oda başına):
-    1) GET {BASE}/r/<oda>/export  → ham JSONL, tüm tutulan halka
-    2) yerel dosyadaki seq'ler okunur
-    3) yalnız YENİ kayıtlar dosyanın sonuna eklenir
+Flow (per room):
+    1) GET {BASE}/r/<room>/export  → raw JSONL, the whole retained ring
+    2) the seqs already in the local file are read
+    3) only NEW records are appended to the end of the file
 
-Kurallar (kasıtlı):
-  * ekleme — dosya asla baştan yazılmaz, yalnız "a" modunda açılır;
-  * tekilleştirme — kayıt `seq` alanına göre; görülmüş seq tekrar yazılmaz,
-    `seq` alanı olmayan kayıt hiç yazılmaz (tekilleştirilemez);
-  * yol güvenliği — oda adı `[a-z0-9._-]` dışında karakter içeriyorsa reddedilir;
-  * sır yazılmaz — oda satırları herkese açık veridir (başka ajanların metni
-    dahil, saklanması serbest). Yalnız `/r/<oda>/export` gövdesi diske yazılır;
-    .env, token, anahtar, DSN gibi bir şey bu dosyaya asla girmez.
+Rules (deliberate):
+  * append — the file is never rewritten, it is only opened in "a" mode;
+  * dedupe — by the record `seq` field; a seq already seen is not written
+    again, and a record without a `seq` field is never written (cannot be
+    deduped);
+  * path safety — a room name containing characters outside `[a-z0-9._-]` is
+    rejected;
+  * no secrets — room lines are public data (including other agents' text, free
+    to store). Only the `/r/<room>/export` body is written to disk; nothing like
+    .env, a token, a key or a DSN ever enters this file.
 
-Kullanım:
+Usage:
     python apps/tools/archive_rooms.py --once
     python apps/tools/archive_rooms.py --once --rooms tclk-deliveries,kibble
-    python apps/tools/archive_rooms.py --once --out-dir /tmp/arsiv --dry
-    python apps/tools/archive_rooms.py                 # --interval ile döngü
+    python apps/tools/archive_rooms.py --once --out-dir /tmp/archive --dry
+    python apps/tools/archive_rooms.py                 # loop with --interval
 
-Çıktı: oda başına tek satır özet — okunan kayıt, yeni kayıt, dosya boyutu.
+Output: one summary line per room — records read, records new, file size.
 """
 
 from __future__ import annotations
@@ -45,8 +47,8 @@ for p in (str(ROOT), str(ROOT / "packages")):
 
 import httpx
 
-# Varsayılan odalar: pazaryeri teslimatları, hakem kararları, kibble ve
-# flop tarafındaki yayın odaları (hepsi herkese açık, imzasız okunur).
+# Default rooms: marketplace deliveries, judge verdicts, kibble and the
+# publication rooms on the flop side (all public, read unsigned).
 DEFAULT_ROOMS: tuple[str, ...] = (
     "tclk-offers",
     "tclk-deliveries",
@@ -64,8 +66,9 @@ TIMEOUT_S = float(os.environ.get("LUMI_ARCHIVE_TIMEOUT", "120"))
 MAX_BODY_BYTES = int(os.environ.get("LUMI_ARCHIVE_MAX_BYTES", str(64 * 1024 * 1024)))
 ROOM_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,62}$")
 
-# reveal/escrow preimage'ı oda satırında düz metin geçebilir; arşivde ham halka
-# saklanır ama DB'ye yazılan `line` alanı maskelenir (bkz. mask_secret).
+# A reveal/escrow preimage can appear as plain text in a room line; the archive
+# keeps the raw ring but the `line` field written to the DB is masked
+# (see mask_secret).
 _SECRET_RES = (
     re.compile(r"(?i)(\bsecret\s*[:=]\s*)([^\n⏎|]+)"),
     re.compile(r"(?i)(\bpreimage\s*[:=]\s*)([^\n⏎|]+)"),
@@ -73,7 +76,7 @@ _SECRET_RES = (
 
 
 def base_url() -> str:
-    """Technocore taban adresi (env TECHNNOCORE/TECHNOCORE_BASE_URL, yoksa üretim)."""
+    """Technocore base URL (env TECHNNOCORE/TECHNOCORE_BASE_URL, else production)."""
     return (
         os.environ.get("TECHNOCORE_BASE_URL")
         or os.environ.get("TECHONOCORE_BASE_URL")
@@ -82,18 +85,19 @@ def base_url() -> str:
 
 
 def safe_room(room: str) -> str:
-    """Oda adını doğrular; dosya yolu kaçışını (../, /) baştan engeller."""
+    """Validate the room name; blocks path traversal (../, /) up front."""
     name = (room or "").strip().lstrip("/")
     if not ROOM_RE.match(name):
-        raise ValueError(f"geçersiz oda adı: {room!r}")
+        raise ValueError(f"invalid room name: {room!r}")
     return name
 
 
 def mask_secret(text: str) -> str:
-    """`secret:` / `preimage:` değerini maskeler — maskeleme kuralı tek yerde.
+    """Mask the `secret:` / `preimage:` value — the masking rule lives in one place.
 
-    Arşiv dosyası ham halkayı tutar (oda zaten herkese açık); DB'ye yazılan
-    satır ise maskelenir, çünkü o satır sorgulanır ve panolarda görünür.
+    The archive file keeps the raw ring (the room is already public); the line
+    written to the DB is masked, because that line is queried and shown on
+    dashboards.
     """
     out = text or ""
     for rx in _SECRET_RES:
@@ -106,10 +110,10 @@ def archive_path(out_dir: str | Path, room: str) -> Path:
 
 
 def load_seqs(path: Path) -> tuple[set[int], int, int | None, int | None]:
-    """Dosyadaki seq'leri okur: (seq kümesi, satır sayısı, ilk seq, son seq).
+    """Read the seqs in the file: (set of seqs, line count, first seq, last seq).
 
-    Bozuk satır sayılmaz ama dosyayı da öldürmez — arşiv büyüdükçe tek hatalı
-    satır yüzünden tüm arşivi kaybetmek kabul edilemez.
+    A corrupt line is not counted but does not kill the file either — losing the
+    whole archive to a single bad line as it grows is unacceptable.
     """
     seqs: set[int] = set()
     lines = 0
@@ -135,18 +139,18 @@ def load_seqs(path: Path) -> tuple[set[int], int, int | None, int | None]:
 
 
 def fetch_export(room: str, base: str | None = None, timeout: float = TIMEOUT_S) -> str:
-    """Oda export gövdesini indirir (ham JSONL). Hata durumunda exception atar."""
+    """Download the room export body (raw JSONL). Raises on error."""
     url = f"{(base or base_url())}{EXPORT_PATH.format(room=safe_room(room))}"
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
         res = client.get(url)
         res.raise_for_status()
         if len(res.content) > MAX_BODY_BYTES:
-            raise ValueError(f"gövde çok büyük: {len(res.content)} bayt > {MAX_BODY_BYTES}")
+            raise ValueError(f"body too large: {len(res.content)} bytes > {MAX_BODY_BYTES}")
         return res.text
 
 
 def iter_records(text: str):
-    """JSONL gövdesini kayıtlara ayırır; bozuk satırlar sessizce atlanır."""
+    """Split the JSONL body into records; corrupt lines are skipped silently."""
     for raw in (text or "").splitlines():
         line = raw.strip()
         if not line:
@@ -167,39 +171,41 @@ def archive_room(
     dry: bool = False,
     timeout: float = TIMEOUT_S,
 ) -> dict:
-    """Tek odayı arşivler ve özet döner (program_watch bu sözlüğü deftere yazar).
+    """Archive a single room and return a summary (program_watch writes this dict to the ledger).
 
-    Dönen alanlar: room, okunan, yeni, atlanan, bayt, satır, ilk_seq, son_seq,
-    eklenecek_bayt, hata, dry.
+    The returned keys are read as-is by apps/scheduler/program_watch.py:
+    room, read, new, skipped, bytes, rows, first_seq, last_seq,
+    bytes_to_append, error, dry.
     """
     room = safe_room(room)
     path = archive_path(out_dir, room)
+    # NOTE: program_watch.py reads these dict keys by these exact names.
     summary: dict = {
         "room": room,
-        "okunan": 0,
-        "yeni": 0,
-        "atlanan": 0,
-        "bayt": path.stat().st_size if path.exists() else 0,
-        "satir": 0,
-        "ilk_seq": None,
-        "son_seq": None,
-        "eklenecek_bayt": 0,
-        "hata": "",
+        "read": 0,
+        "new": 0,
+        "skipped": 0,
+        "bytes": path.stat().st_size if path.exists() else 0,
+        "rows": 0,
+        "first_seq": None,
+        "last_seq": None,
+        "bytes_to_append": 0,
+        "error": "",
         "dry": bool(dry),
     }
     try:
         body = fetch_export(room, base, timeout)
-    except Exception as exc:  # ağ/HTTP hatası: oda atlanır, diğerleri devam eder
-        summary["hata"] = f"{type(exc).__name__}: {exc}"
+    except Exception as exc:  # network/HTTP error: skip this room, others continue
+        summary["error"] = f"{type(exc).__name__}: {exc}"
         return summary
 
     seqs, lines, first, last = load_seqs(path)
     fresh: list[str] = []
     for rec in iter_records(body):
-        summary["okunan"] += 1
+        summary["read"] += 1
         seq = rec.get("seq")
         if not isinstance(seq, int):
-            summary["atlanan"] += 1
+            summary["skipped"] += 1
             continue
         if seq in seqs:
             continue
@@ -211,31 +217,31 @@ def archive_room(
             last = seq
 
     payload = "".join(line + "\n" for line in fresh)
-    summary["yeni"] = len(fresh)
-    summary["eklenecek_bayt"] = len(payload.encode("utf-8"))
-    summary["satir"] = lines + len(fresh)
-    summary["ilk_seq"] = first
-    summary["son_seq"] = last
+    summary["new"] = len(fresh)
+    summary["bytes_to_append"] = len(payload.encode("utf-8"))
+    summary["rows"] = lines + len(fresh)
+    summary["first_seq"] = first
+    summary["last_seq"] = last
     if not dry and fresh:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
-        # Yalnız ekleme: dosya hiçbir durumda baştan yazılmaz.
+        # Append only: the file is never rewritten under any circumstance.
         with path.open("a", encoding="utf-8") as fh:
             fh.write(payload)
             fh.flush()
             os.fsync(fh.fileno())
-    summary["bayt"] = path.stat().st_size if path.exists() else 0
+    summary["bytes"] = path.stat().st_size if path.exists() else 0
     return summary
 
 
 def format_summary(s: dict) -> str:
-    """Tek satır Türkçe özet (systemd günlüğüne düşen biçim)."""
-    if s["hata"]:
-        return f"[oda] {s['room']:<20} HATA {s['hata']}"
-    tail = " (dry — yazılmadı)" if s["dry"] else ""
+    """Single-line summary (the format that lands in the systemd journal)."""
+    if s["error"]:
+        return f"[room] {s['room']:<20} ERROR {s['error']}"
+    tail = " (dry — not written)" if s["dry"] else ""
     return (
-        f"[oda] {s['room']:<20} okunan={s['okunan']:<6} yeni={s['yeni']:<5} "
-        f"atlanan={s['atlanan']:<4} bayt={s['bayt']:<10} "
-        f"satir={s['satir']:<6} seq={s['ilk_seq']}..{s['son_seq']}{tail}"
+        f"[room] {s['room']:<20} read={s['read']:<6} new={s['new']:<5} "
+        f"skipped={s['skipped']:<4} bytes={s['bytes']:<10} "
+        f"rows={s['rows']:<6} seq={s['first_seq']}..{s['last_seq']}{tail}"
     )
 
 
@@ -246,7 +252,7 @@ def run_once(
     dry: bool = False,
     base: str | None = None,
 ) -> list[dict]:
-    """Verilen odaları tek turda arşivler; özet listesi döner."""
+    """Archive the given rooms in one round; returns the list of summaries."""
     result: list[dict] = []
     for room in rooms or DEFAULT_ROOMS:
         summary = archive_room(room, out_dir, base=base, dry=dry)
@@ -256,20 +262,20 @@ def run_once(
 
 
 def parse_rooms(raw: str | None) -> list[str]:
-    """`--rooms a,b,c` girdisini listeye çevirir (boşsa varsayılanlar)."""
+    """Turn the `--rooms a,b,c` input into a list (defaults when empty)."""
     if not raw:
         return list(DEFAULT_ROOMS)
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="archive_rooms", description="technocore oda arşivi")
-    ap.add_argument("--once", action="store_true", help="tek tur çalış ve çık")
-    ap.add_argument("--rooms", default="", help="virgülle ayrılmış oda listesi")
-    ap.add_argument("--out-dir", default=DEFAULT_OUT_DIR, help="arşiv dizini")
+    ap = argparse.ArgumentParser(prog="archive_rooms", description="technocore room archive")
+    ap.add_argument("--once", action="store_true", help="run one round and exit")
+    ap.add_argument("--rooms", default="", help="comma-separated room list")
+    ap.add_argument("--out-dir", default=DEFAULT_OUT_DIR, help="archive directory")
     ap.add_argument("--interval", type=float, default=float(os.environ.get("LUMI_ARCHIVE_INTERVAL", "21600")),
-                    help="--once yoksa turlar arası saniye (varsayılan 6 saat)")
-    ap.add_argument("--dry", action="store_true", help="indir ve raporla, diske yazma")
+                    help="seconds between rounds when --once is absent (default 6 hours)")
+    ap.add_argument("--dry", action="store_true", help="download and report, do not write to disk")
     args = ap.parse_args(argv)
 
     rooms = parse_rooms(args.rooms)
@@ -277,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
         run_once(rooms, args.out_dir, dry=args.dry)
         return 0
 
-    # Döngü kipi: systemd timer yoksa elle çalıştırmak için.
+    # Loop mode: for manual runs when there is no systemd timer.
     while True:
         run_once(rooms, args.out_dir, dry=args.dry)
         time.sleep(max(60.0, args.interval))
