@@ -23,6 +23,10 @@ services:
       retries: 6
       start_period: 10s
     expose: ["5432"]
+    # Host-side services (lumi-earn, lumi-kibble) run outside this network and
+    # write to the llm_usage ledger, so the port is published on loopback only.
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     networks: [lumi_internal]
 
   # ------------------------------------------------------ Redis 7
@@ -99,9 +103,18 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
       TELEGRAM_GROUP_ENABLED: ${TELEGRAM_GROUP_ENABLED:-false}
+      # tclk denetim politikasi — panel bu degerleri Scheduler ile ayni gostersin
+      TCLK_AGENT_AUDIT_ENABLED: ${TCLK_AGENT_AUDIT_ENABLED:-true}
+      TCLK_AGENT_ACCEPT_SPECLESS: ${TCLK_AGENT_ACCEPT_SPECLESS:-false}
+      TCLK_ACCEPT_REQUIRE_BRIEF: ${TCLK_ACCEPT_REQUIRE_BRIEF:-true}
+      TCLK_AGENT_MIN_TIER: ${TCLK_AGENT_MIN_TIER:-safe}
+      TCLK_AGENT_ACCEPT_PER_HOUR: ${TCLK_AGENT_ACCEPT_PER_HOUR:-6}
+      TCLK_AGENT_PRODUCE: ${TCLK_AGENT_PRODUCE:-true}
+      TCLK_PRODUCE_PER_HOUR: ${TCLK_PRODUCE_PER_HOUR:-6}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      REASONING_EFFORT: ${REASONING_EFFORT:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       JEV_ENABLED: ${JEV_ENABLED:-false}
       JEV_BASE_URL: ${JEV_BASE_URL:-https://ai-gateway.vercel.sh/v1}
@@ -120,6 +133,7 @@ services:
       JEV_EVALUATOR_ENABLED: ${JEV_EVALUATOR_ENABLED:-false}
       JEV_POLICY_ENABLED: ${JEV_POLICY_ENABLED:-false}
       JEV_TCLK_ENABLED: ${JEV_TCLK_ENABLED:-false}
+      JEV_TCLK_REQUIRE_LEGIT: ${JEV_TCLK_REQUIRE_LEGIT:-true}
       JEV_POLICY_TOOLS: ${JEV_POLICY_TOOLS:-technocore_read,github_repo_read,http_json_read,internal_health,db_self_write}
       JEV_POLICY_REVIEW_THRESHOLD: ${JEV_POLICY_REVIEW_THRESHOLD:-0.50}
       JEV_ESCALATE_TO_LLM: ${JEV_ESCALATE_TO_LLM:-true}
@@ -196,9 +210,17 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-lumi}:${POSTGRES_PASSWORD}@lumi-postgres:5432/${POSTGRES_DB:-lumi}
       REDIS_URL: redis://lumi-redis:6379/0
       SESSION_ENCRYPTION_MASTER_KEY: ${SESSION_ENCRYPTION_MASTER_KEY}
+      TCLK_AGENT_AUDIT_ENABLED: ${TCLK_AGENT_AUDIT_ENABLED:-true}
+      TCLK_AGENT_ACCEPT_SPECLESS: ${TCLK_AGENT_ACCEPT_SPECLESS:-false}
+      TCLK_ACCEPT_REQUIRE_BRIEF: ${TCLK_ACCEPT_REQUIRE_BRIEF:-true}
+      TCLK_AGENT_MIN_TIER: ${TCLK_AGENT_MIN_TIER:-safe}
+      TCLK_AGENT_ACCEPT_PER_HOUR: ${TCLK_AGENT_ACCEPT_PER_HOUR:-6}
+      TCLK_AGENT_PRODUCE: ${TCLK_AGENT_PRODUCE:-true}
+      TCLK_PRODUCE_PER_HOUR: ${TCLK_PRODUCE_PER_HOUR:-6}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      REASONING_EFFORT: ${REASONING_EFFORT:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       JEV_ENABLED: ${JEV_ENABLED:-false}
       JEV_BASE_URL: ${JEV_BASE_URL:-https://ai-gateway.vercel.sh/v1}
@@ -217,6 +239,7 @@ services:
       JEV_EVALUATOR_ENABLED: ${JEV_EVALUATOR_ENABLED:-false}
       JEV_POLICY_ENABLED: ${JEV_POLICY_ENABLED:-false}
       JEV_TCLK_ENABLED: ${JEV_TCLK_ENABLED:-false}
+      JEV_TCLK_REQUIRE_LEGIT: ${JEV_TCLK_REQUIRE_LEGIT:-true}
       JEV_POLICY_TOOLS: ${JEV_POLICY_TOOLS:-technocore_read,github_repo_read,http_json_read,internal_health,db_self_write}
       JEV_POLICY_REVIEW_THRESHOLD: ${JEV_POLICY_REVIEW_THRESHOLD:-0.50}
       JEV_ESCALATE_TO_LLM: ${JEV_ESCALATE_TO_LLM:-true}
@@ -284,8 +307,21 @@ services:
       TCLK_AGENT_MAX_AMOUNT: ${TCLK_AGENT_MAX_AMOUNT:-1000000}
       TCLK_AGENT_RAILS: ${TCLK_AGENT_RAILS:-flop-htlc,x402}
       TCLK_AGENT_MAX_ACTIVE: ${TCLK_AGENT_MAX_ACTIVE:-2}
-      TCLK_AGENT_TASK_PATTERNS: ${TCLK_AGENT_TASK_PATTERNS:-market,scan,digest,report,summary,stats,read,observe}
+      TCLK_AGENT_ACTIVE_TTL: ${TCLK_AGENT_ACTIVE_TTL:-1800}
+      TCLK_AGENT_TASK_PATTERNS: ${TCLK_AGENT_TASK_PATTERNS:-math,verification,inference,documentation,attest,protocol,probe,echo,scan,digest,report,summary,stats,read,observe,a2a,blockrewards,pin,kibble,acp}
+      TCLK_AGENT_MAX_DIFFICULTY: ${TCLK_AGENT_MAX_DIFFICULTY:-3}
+      TCLK_AGENT_AUDIT_ENABLED: ${TCLK_AGENT_AUDIT_ENABLED:-true}
+      TCLK_AGENT_ACCEPT_SPECLESS: ${TCLK_AGENT_ACCEPT_SPECLESS:-false}
+      TCLK_ACCEPT_REQUIRE_BRIEF: ${TCLK_ACCEPT_REQUIRE_BRIEF:-true}
+      TCLK_AGENT_MIN_TIER: ${TCLK_AGENT_MIN_TIER:-safe}
+      TCLK_AGENT_ACCEPT_PER_HOUR: ${TCLK_AGENT_ACCEPT_PER_HOUR:-6}
+      TCLK_AGENT_PRODUCE: ${TCLK_AGENT_PRODUCE:-true}
+      TCLK_PRODUCE_PER_HOUR: ${TCLK_PRODUCE_PER_HOUR:-6}
       TCLK_CLAIM_RADAR_ENABLED: ${TCLK_CLAIM_RADAR_ENABLED:-true}
+      # Room where an offer's `job` marker resolves to a real brief.
+      TCLK_JOB_ROOM: ${TCLK_JOB_ROOM:-kibble}
+      # Token muhasebesinde bu çağrıları kimin yaktığı görünsün (llm_usage.service).
+      LUMI_SERVICE: lumi-scheduler
       EVALUATOR_LLM_ENABLED: ${EVALUATOR_LLM_ENABLED:-true}
       CONNECTOR_ALLOWED_HOSTS: ${CONNECTOR_ALLOWED_HOSTS:-}
       SOURCE_MONITOR_ENABLED: ${SOURCE_MONITOR_ENABLED:-false}
@@ -300,6 +336,7 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      REASONING_EFFORT: ${REASONING_EFFORT:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       JEV_ENABLED: ${JEV_ENABLED:-false}
       JEV_BASE_URL: ${JEV_BASE_URL:-https://ai-gateway.vercel.sh/v1}
@@ -318,6 +355,7 @@ services:
       JEV_EVALUATOR_ENABLED: ${JEV_EVALUATOR_ENABLED:-false}
       JEV_POLICY_ENABLED: ${JEV_POLICY_ENABLED:-false}
       JEV_TCLK_ENABLED: ${JEV_TCLK_ENABLED:-false}
+      JEV_TCLK_REQUIRE_LEGIT: ${JEV_TCLK_REQUIRE_LEGIT:-true}
       JEV_POLICY_TOOLS: ${JEV_POLICY_TOOLS:-technocore_read,github_repo_read,http_json_read,internal_health,db_self_write}
       JEV_POLICY_REVIEW_THRESHOLD: ${JEV_POLICY_REVIEW_THRESHOLD:-0.50}
       JEV_ESCALATE_TO_LLM: ${JEV_ESCALATE_TO_LLM:-true}
@@ -330,6 +368,34 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health/live',timeout=3)\""]
       interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [lumi_internal]
+
+  # ------------------------------------------------------ Canlı günlük (salt okunur)
+  # Ne yapıyor sorusunu tek okunabilir sayfada yanıtlar: LLM kararları ve Jev
+  # kararları ayrı bölümlerde. Yalnızca SELECT çalıştırır.
+  lumi-logs:
+    build:
+      context: .
+      dockerfile: apps/logs/Dockerfile
+    container_name: lumi-logs
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lumi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-lumi}
+      POSTGRES_HOST: lumi-postgres
+      LOGS_PORT: "8000"
+      LOGS_REFRESH_SECONDS: ${LOGS_REFRESH_SECONDS:-20}
+      LOGS_ROWS: ${LOGS_ROWS:-25}
+    ports:
+      - "127.0.0.1:${LOGS_PORT_HOST:-3590}:8000"
+    depends_on:
+      lumi-postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/saglik',timeout=3)\""]
+      interval: 20s
       timeout: 5s
       retries: 5
     networks: [lumi_internal]

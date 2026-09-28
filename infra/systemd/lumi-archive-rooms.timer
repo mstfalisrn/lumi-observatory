@@ -1,0 +1,13 @@
+[Unit]
+# 6 saatte bir tüm odaların arşivini tazeler (00:00, 06:00, 12:00, 18:00).
+Description=LUMI oda arşivi zamanlayıcısı (6 saatte bir)
+
+[Timer]
+OnCalendar=*-*-* 00/6:00:00
+Persistent=true
+RandomizedDelaySec=120
+AccuracySec=1min
+Unit=lumi-archive-rooms.service
+
+[Install]
+WantedBy=timers.target

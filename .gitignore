@@ -32,3 +32,7 @@ tests/artifacts/
 .DS_Store
 docs/mcp-audit/
 docs/remediation/
+
+# yedek env ve ek venv'ler asla izlenmez
+.env.bak*
+.venv-earn/

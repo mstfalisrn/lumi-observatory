@@ -925,7 +925,7 @@ async def technocore_status(user: dict = Depends(get_current_user)):
 async def tclk_market(user: dict = Depends(get_current_user)):
     """Read-only tclk/1 market summary — masked rows only, never reveal/preimage values."""
     _ = user
-    from observability.models import TclkFrameRow
+    from observability.models import TclkFrameRow, TclkOfferAuditRow
 
     async with async_session_factory() as s:
         total = (await s.execute(select(func.count()).select_from(TclkFrameRow))).scalar() or 0
@@ -976,6 +976,39 @@ async def tclk_market(user: dict = Depends(get_current_user)):
             for c in comp
         ]
         real_rails = {"flop-htlc", "x402", "ETH", "clk-htlc", "btc-ptlc"}
+        # --- denetim: security audit of the incoming offer stream ---
+        audits_total = (
+            await s.execute(select(func.count()).select_from(TclkOfferAuditRow))
+        ).scalar() or 0
+        aud_dec = (
+            await s.execute(
+                select(TclkOfferAuditRow.decision, func.count()).group_by(TclkOfferAuditRow.decision)
+            )
+        ).all()
+        aud_risk = (
+            await s.execute(
+                select(TclkOfferAuditRow.risk, func.count()).group_by(TclkOfferAuditRow.risk)
+            )
+        ).all()
+        aud_tier = (
+            await s.execute(
+                select(TclkOfferAuditRow.jev_tier, func.count())
+                .where(TclkOfferAuditRow.jev_ran.is_(True))
+                .group_by(TclkOfferAuditRow.jev_tier)
+            )
+        ).all()
+        aud_24h = (
+            await s.execute(
+                select(func.count())
+                .select_from(TclkOfferAuditRow)
+                .where(TclkOfferAuditRow.created_at >= since)
+            )
+        ).scalar() or 0
+        aud_recent = (
+            await s.execute(
+                select(TclkOfferAuditRow).order_by(TclkOfferAuditRow.created_at.desc()).limit(15)
+            )
+        ).scalars().all()
         recent = (
             await s.execute(select(TclkFrameRow).order_by(TclkFrameRow.created_at.desc()).limit(15))
         ).scalars().all()
@@ -989,6 +1022,39 @@ async def tclk_market(user: dict = Depends(get_current_user)):
             "monitor_enabled": settings.TCLK_ENABLED,
             "agent_enabled": settings.TCLK_AGENT_ENABLED,
             "claim_radar_enabled": settings.TCLK_CLAIM_RADAR_ENABLED,
+            "audit": {
+                "enabled": settings.TCLK_AGENT_AUDIT_ENABLED,
+                "total": int(audits_total),
+                "audited_24h": int(aud_24h),
+                "by_decision": {str(k): int(c) for k, c in aud_dec},
+                "by_risk": {str(k or "(bos)"): int(c) for k, c in aud_risk},
+                "jev_by_tier": {str(k or "(bos)"): int(c) for k, c in aud_tier},
+                "min_tier": settings.TCLK_AGENT_MIN_TIER,
+                "accept_specless": bool(settings.TCLK_AGENT_ACCEPT_SPECLESS),
+                "accept_require_brief": bool(settings.TCLK_ACCEPT_REQUIRE_BRIEF),
+                "accept_per_hour": int(settings.TCLK_AGENT_ACCEPT_PER_HOUR or 0),
+                "reasoning_effort": settings.REASONING_EFFORT,
+                "recent": [
+                    {
+                        "seq": a.seq,
+                        "room": a.room,
+                        "author": a.author[:40],
+                        "amount": a.amount,
+                        "asset": a.asset,
+                        "rail": a.rail,
+                        "spec": a.spec,
+                        "spec_missing": a.spec_missing,
+                        "decision": a.decision,
+                        "risk": a.risk,
+                        "reason": a.reason,
+                        "jev_tier": a.jev_tier,
+                        "jev_confidence": a.jev_confidence,
+                        "jev_reason": a.jev_reason,
+                        "created_at": a.created_at.isoformat(),
+                    }
+                    for a in aud_recent
+                ],
+            },
             "recent": [
                 {
                     "kind": f.kind,

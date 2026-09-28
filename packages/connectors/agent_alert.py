@@ -305,7 +305,6 @@ async def send_telegram_text(text: str) -> bool:
                         json={
                             "chat_id": uid,
                             "text": text,
-                            "parse_mode": "Markdown",
                             "disable_web_page_preview": True,
                         },
                     )

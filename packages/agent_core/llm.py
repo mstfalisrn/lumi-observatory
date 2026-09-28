@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import abc
 import json
+import time
 from dataclasses import dataclass, field
 
 import httpx
@@ -28,6 +29,29 @@ def _llm_headers(api_key: str) -> dict[str, str]:
     if settings.LLM_SESSION_ID:
         headers["x-opencode-session"] = settings.LLM_SESSION_ID
     return headers
+
+
+def _report_usage(model: str, usage: dict, purpose: str, elapsed_s: float) -> None:
+    """Count one call in the token ledger.
+
+    Accounting is strictly secondary: if the ledger is unavailable the model call
+    has still succeeded, so failures here are swallowed on purpose.
+    """
+    try:
+        try:  # container layout: packages/ merged into the image root
+            from observability import llm_usage
+        except ImportError:  # host layout: repo root on sys.path (earn/kibble)
+            from packages.observability import llm_usage
+
+        llm_usage.record(
+            provider="openai_compatible",
+            model=model,
+            usage=usage,
+            purpose=purpose,
+            latency_ms=int(elapsed_s * 1000),
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @dataclass
@@ -95,14 +119,22 @@ class OpenAICompatibleProvider(LLMProvider):
 
     async def chat(self, messages, tools=None, **kw) -> LLMResult:
         url = f"{self.base_url}/chat/completions"
+        # Bookkeeping kwarg for the token ledger: must never reach the API body.
+        purpose = str(kw.pop("purpose", "") or "")
         payload: dict = {
             "model": self.model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             **kw,
         }
+        # Reasoning depth for reasoning-capable models. Caller-supplied kw wins,
+        # so an explicit per-call value can still override the configured default.
+        effort = (getattr(settings, "REASONING_EFFORT", "") or "").strip().lower()
+        if effort and "reasoning_effort" not in payload:
+            payload["reasoning_effort"] = effort
         if tools is not None:
             payload["tools"] = [{"type": "function", "function": t} for t in tools]
         headers = _llm_headers(self.api_key)
+        _started = time.perf_counter()
         resp = await self._client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()
@@ -115,12 +147,14 @@ class OpenAICompatibleProvider(LLMProvider):
             )
             for tc in (msg.get("tool_calls") or [])
         ]
-        return LLMResult(
+        result = LLMResult(
             text=msg.get("content") or "",
             tool_calls=tool_calls,
             finish_reason=data["choices"][0].get("finish_reason", ""),
             usage=data.get("usage", {}),
         )
+        _report_usage(self.model, result.usage, purpose, time.perf_counter() - _started)
+        return result
 
     async def check(self) -> bool:
         try:

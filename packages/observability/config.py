@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     LLM_API_KEY: str = ""
     LLM_SESSION_ID: str = ""  # sent as x-opencode-session (required by OpenCode Go free tier)
     LLM_USER_AGENT: str = ""  # override; default browser-like UA (Cloudflare-protected providers)
+    # Reasoning effort for reasoning-capable models (xhigh|high|medium|low).
+    # Empty = provider default. Sent as `reasoning_effort` on chat/completions.
+    REASONING_EFFORT: str = ""
 
     # GitHub — optional; empty means planner must not auto-generate github actions
     DEFAULT_GITHUB_REPO: str = ""
@@ -112,10 +115,35 @@ class Settings(BaseSettings):
     TCLK_AGENT_MAX_AMOUNT: str = "1000000"  # skip offers above this unit count
     TCLK_AGENT_RAILS: str = "flop-htlc,x402"  # only escrow-bearing rails we will work on
     TCLK_AGENT_MAX_ACTIVE: int = 2  # concurrent accepted contracts (memory-held secrets)
-    TCLK_AGENT_TASK_PATTERNS: str = "market,scan,digest,report,summary,stats,read,observe"
+    # A commitment that never gets locked or revealed must not hold a slot
+    # forever — stale ones are pruned so the agent is not permanently "busy".
+    TCLK_AGENT_ACTIVE_TTL: int = 1800
+    TCLK_AGENT_TASK_PATTERNS: str = (
+        "math,verification,inference,documentation,attest,protocol,probe,echo,"
+        "scan,digest,report,summary,stats,read,observe,"
+        "a2a,blockrewards,pin,kibble,acp"
+    )
+    TCLK_AGENT_MAX_DIFFICULTY: int = 3  # skip offers harder than [difficulty n/m]; 0 = no ceiling
     # Claim radar: notify the owner the first time a locked deal on a real rail actually
     # completes (reveal posted) — i.e. the first real payout LUMI observes.
     TCLK_CLAIM_RADAR_ENABLED: bool = True
+    # --- Offer security audit ("denetim") -----------------------------------
+    # Every incoming offer is audited and persisted, accepted or not. These knobs
+    # decide what the audit is allowed to ACCEPT.
+    TCLK_AGENT_AUDIT_ENABLED: bool = True
+    TCLK_AGENT_ACCEPT_SPECLESS: bool = False  # accept offers carrying no spec (mapped to our default task)
+    # A brief that cannot be resolved must not be accepted, however opt-in the
+    # spec-less handling is: an unanswered accept burns a concurrency slot and
+    # the hourly accept quota. False = allow accepting brief-less offers again.
+    TCLK_ACCEPT_REQUIRE_BRIEF: bool = True
+    TCLK_AGENT_PRODUCE: bool = True  # do production briefs with the LLM (caption/report/script/...)
+    TCLK_PRODUCE_PER_HOUR: int = 6  # hourly brake on LLM production calls
+    TCLK_AGENT_MIN_TIER: str = "safe"  # ceiling of accepted audit risk: safe|watch|risky|dangerous
+    TCLK_AGENT_ACCEPT_PER_HOUR: int = 6  # our own rate limit on public accept posts
+    # Room where an offer's `job` marker resolves to a real brief. A spec-less
+    # offer whose pointer cannot be resolved here is refused rather than accepted
+    # into a `no_answer` dead end.
+    TCLK_JOB_ROOM: str = "kibble"
 
     # Lobby surveillance LLM toggle: false = heuristic-only evaluation (no API
     # usage) while agent TASKS still use the real LLM provider.
@@ -140,7 +168,13 @@ class Settings(BaseSettings):
     # Per-surface switches: each one turns Jev on for that decision point only.
     JEV_EVALUATOR_ENABLED: bool = False  # lobby risk triage
     JEV_POLICY_ENABLED: bool = False  # tool-call policy pre-check (can only tighten)
-    JEV_TCLK_ENABLED: bool = False  # tclk offer legitimacy veto
+    JEV_TCLK_ENABLED: bool = False  # tclk offer security veto
+    # Security vs legitimacy: the tclk market is almost entirely spec-less micro
+    # offers. Jev reads "no stated deliverable" as low legitimacy, not as danger,
+    # so gating on `legit_task` vetoes the whole market while the scam/tier
+    # signals stay clean. With this false, `legit_task` is recorded as advisory
+    # metadata only — the scam and RISKY/DANGEROUS tier vetoes remain the gate.
+    JEV_TCLK_REQUIRE_LEGIT: bool = True
     JEV_POLICY_TOOLS: str = (
         "technocore_read,github_repo_read,http_json_read,internal_health,db_self_write"
     )  # tools the policy pre-check may watch (ALLOW-only tightening)

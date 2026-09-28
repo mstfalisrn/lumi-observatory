@@ -18,6 +18,7 @@ from sqlalchemy import (
     Identity,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -593,4 +594,128 @@ class TclkFrameRow(_UUIDMixin, Base):
     amount: Mapped[str] = mapped_column(String(40), nullable=False, default="")
     summary: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class TclkOfferAuditRow(_UUIDMixin, Base):
+    """One security audit ("denetim") of an incoming tclk/1 offer.
+
+    Written for EVERY offer the agent looks at — accepted or rejected — so the
+    decision trail is complete and auditable. The deterministic verdict is always
+    present; the Jev fields are filled only when the decision layer actually ran.
+    """
+
+    __tablename__ = "tclk_offer_audits"
+    __table_args__ = (
+        UniqueConstraint("room", "seq", name="uq_tclk_audit_room_seq"),
+        Index("ix_tclk_audit_created", "created_at"),
+        Index("ix_tclk_audit_decision", "decision"),
+    )
+    room: Mapped[str] = mapped_column(String(64), nullable=False)
+    seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    ref: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    author: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    rail: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    asset: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    amount: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    spec: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    spec_missing: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False, default="skip")
+    risk: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    reason: Mapped[str] = mapped_column(String(220), nullable=False, default="")
+    checks: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    jev_ran: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    jev_tier: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    jev_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    jev_reason: Mapped[str] = mapped_column(String(220), nullable=False, default="")
+    jev_model: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    # Outcome of an accepted offer: did we actually do the work and ship it?
+    # "" = not accepted / not attempted, "delivered" = answer posted to the deal
+    # room, "no_answer" = brief outside the solver's reach, "error" = post failed.
+    contract: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    answer: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+# ---------------------------------------------------------------------------
+# Program feed / room tape layer — "did the judge pass our work, what is our
+# score, what did the room answer". Three read-side tables, all idempotent on
+# re-write: the watcher can run every 15 minutes without duplicating a row.
+# ---------------------------------------------------------------------------
+class TclkVerdict(_UUIDMixin, Base):
+    """One judge/room verdict line out of the public delivery room tape.
+
+    The room tape is the only place the venue states PASS/FAIL per contract, so
+    the verdict is copied here once (dedupe on room+seq) instead of being
+    re-parsed on every dashboard query. The raw line is masked (reveal/preimage
+    never stored — same rule as TclkFrame) and truncated to 2000 chars.
+    """
+
+    __tablename__ = "tclk_verdicts"
+    __table_args__ = (
+        UniqueConstraint("room", "seq", name="uq_tclk_verdict_room_seq"),
+        Index("ix_tclk_verdict_contract", "contract"),
+        Index("ix_tclk_verdict_verdict", "verdict"),
+        Index("ix_tclk_verdict_created", "created_at"),
+    )
+    room: Mapped[str] = mapped_column(String(64), nullable=False)
+    seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    contract: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    # PASS / FAIL verbatim; any other room status (claimed, accepted, locked,
+    # refunded, …) is kept as its own word, "other" when there is no word.
+    verdict: Mapped[str] = mapped_column(String(16), nullable=False, default="other")
+    line: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Only filled when the line itself names a payer; the post's author is not
+    # used as a substitute because the verdict is written by the judge, not the
+    # payer, and guessing here would silently poison the payment trail.
+    payer_did: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class ProgramScore(_UUIDMixin, Base):
+    """One snapshot of an official program feed we consume.
+
+    sources: passport (blockrewards/passports.json), points (points.json),
+    kibble (kibble /api/score) and board (board/workers.json). `subject_did` is
+    our own DID when the feed mentions it, empty otherwise — an empty subject
+    still stores the feed, so "the feed never mentions us" is itself a recorded
+    fact rather than a silent gap. Unique on (source, subject_did, captured_at)
+    with captured_at truncated to the minute: a retry of the same tick updates
+    its own row instead of inserting a second one.
+    """
+
+    __tablename__ = "program_scores"
+    __table_args__ = (
+        UniqueConstraint("source", "subject_did", "captured_at", name="uq_program_score_snapshot"),
+        Index("ix_program_score_source_captured", "source", "captured_at"),
+        Index("ix_program_score_subject", "subject_did"),
+    )
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_did: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    score: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class RoomArchive(_UUIDMixin, Base):
+    """Bookkeeping row for the local room archive file of one room.
+
+    The JSONL file under LUMI_ARCHIVE_DIR is the archive; this row is its index
+    (first/last seq, record count, byte size) so freshness is queryable without
+    touching the filesystem. Unique on room → a re-run updates the same row.
+    """
+
+    __tablename__ = "room_archives"
+    __table_args__ = (
+        UniqueConstraint("room", name="uq_room_archive_room"),
+        Index("ix_room_archive_archived", "archived_at"),
+    )
+    room: Mapped[str] = mapped_column(String(64), nullable=False)
+    first_seq: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_seq: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    records: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 

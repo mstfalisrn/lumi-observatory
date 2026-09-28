@@ -1,0 +1,27 @@
+[Unit]
+# Tüm odaların export halkasını yerel arşive ekler (append + seq tekilleştirme).
+# 6 saatte bir çalışır; bekçiden (15 dk) ayrıdır çünkü 8 odanın tamamı ~40 MB.
+# Kurulum (sudo gerekir, bu dosya repoda durur):
+#   sudo cp /opt/lumi-observatory/infra/systemd/lumi-archive-rooms.service /etc/systemd/system/
+#   sudo cp /opt/lumi-observatory/infra/systemd/lumi-archive-rooms.timer   /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now lumi-archive-rooms.timer
+# Elle deneme:
+#   sudo systemctl start lumi-archive-rooms.service
+Description=LUMI oda arşivleyici (technocore export halkası)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/lumi-observatory
+Environment=TECHNOCORE_BASE_URL=https://technocore.chat
+Environment=LUMI_ARCHIVE_DIR=/var/lib/lumi-earn/archives
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/lumi-observatory/.venv-earn/bin/python apps/tools/archive_rooms.py --once
+TimeoutStartSec=900
+StandardOutput=append:/var/log/lumi-archive-rooms.log
+StandardError=append:/var/log/lumi-archive-rooms.log
+
+[Install]
+WantedBy=multi-user.target

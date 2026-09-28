@@ -274,6 +274,9 @@ async def _llm_evaluate(text: str, nick: str, did: str | None, room: str) -> tup
         "max_tokens": 512,
         "response_format": {"type": "json_object"},
     }
+    effort = (settings.REASONING_EFFORT or "").strip().lower()
+    if effort:
+        payload["reasoning_effort"] = effort
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(url, json=payload, headers=headers)

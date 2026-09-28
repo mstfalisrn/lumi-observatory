@@ -37,7 +37,7 @@ ignore = [
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-pythonpath = ["packages", "."]
+pythonpath = ["packages", "apps/scheduler", "."]
 addopts = "-q"
 
 [tool.coverage.run]

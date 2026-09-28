@@ -1264,6 +1264,11 @@ export function AgentsPage() {
 }
 
 // ---------- TCLK Market ----------
+type TclkAuditRow = {
+  seq: number; room: string; author: string; amount: string; asset: string; rail: string
+  spec: string; spec_missing: boolean; decision: string; risk: string; reason: string
+  jev_tier: string; jev_confidence: number | null; jev_reason: string; created_at: string
+}
 type TclkMarketData = {
   frames_total: number
   frames_24h: number
@@ -1274,6 +1279,13 @@ type TclkMarketData = {
   monitor_enabled: boolean
   agent_enabled: boolean
   claim_radar_enabled: boolean
+  audit: {
+    enabled: boolean; total: number; audited_24h: number
+    by_decision: Record<string, number>; by_risk: Record<string, number>
+    jev_by_tier: Record<string, number>
+    min_tier: string; accept_specless: boolean; accept_per_hour: number; reasoning_effort: string
+    recent: TclkAuditRow[]
+  }
   recent: { kind: string; seq: number; room: string; author: string; amount: string; asset: string; rail: string; summary: string; created_at: string }[]
 }
 
@@ -1293,6 +1305,9 @@ export function TclkMarketPage() {
           {data && <>
             <Badge variant={data.agent_enabled ? 'success' : 'secondary'} className="rounded-full">agent {data.agent_enabled ? 'armed' : 'off'}</Badge>
             <Badge variant={data.claim_radar_enabled ? 'violet' : 'outline'} className="rounded-full">claim radar {data.claim_radar_enabled ? 'on' : 'off'}</Badge>
+            <Badge variant={data.audit.enabled ? 'success' : 'secondary'} className="rounded-full">denetim {data.audit.enabled ? 'on' : 'off'}</Badge>
+            <Badge variant="outline" className="rounded-full">tavan ≥ {data.audit.min_tier}</Badge>
+            <Badge variant={data.audit.reasoning_effort === 'xhigh' ? 'violet' : 'outline'} className="rounded-full">reasoning {data.audit.reasoning_effort || 'default'}</Badge>
           </>}
           <Button variant="outline" size="sm" className="rounded-xl" onClick={reload}><RefreshCw className="h-4 w-4" /> Refresh</Button>
         </div>
@@ -1363,6 +1378,80 @@ export function TclkMarketPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* denetim — security audit of the incoming offer stream */}
+          <Card className="border-violet-200/60 dark:border-violet-900/40">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Denetim — her gelen teklifin güvenlik denetimi</CardTitle>
+              <CardDescription>
+                Deterministik kontroller (imza · rail · tutar · süre) + Jev güvenlik kararı. Denetim kaydı, kabul edilmeyen teklifler için de tutulur.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div><div className="text-xs text-muted-foreground font-medium">Denetlenen (24s)</div><div className="text-xl font-bold mt-0.5">{data.audit.audited_24h.toLocaleString('en-US')}</div></div>
+                <div><div className="text-xs text-muted-foreground font-medium">Toplam denetim</div><div className="text-xl font-bold mt-0.5">{data.audit.total.toLocaleString('en-US')}</div></div>
+                <div><div className="text-xs text-muted-foreground font-medium">Kabul</div><div className="text-xl font-bold mt-0.5 text-emerald-600 dark:text-emerald-400">{(data.audit.by_decision.accept || 0).toLocaleString('en-US')}</div></div>
+                <div><div className="text-xs text-muted-foreground font-medium">Ret</div><div className="text-xl font-bold mt-0.5 text-muted-foreground">{(data.audit.by_decision.skip || 0).toLocaleString('en-US')}</div></div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <div className="text-xs font-semibold text-muted-foreground">Risk dağılımı (denetim sonucu)</div>
+                  {Object.entries(data.audit.by_risk).sort((a,b)=>b[1]-a[1]).map(([risk, count]) => (
+                    <div key={risk} className="flex items-center gap-2 text-sm">
+                      <Badge variant={risk === 'safe' ? 'success' : risk === 'watch' ? 'warning' : 'destructive'} className="w-24 justify-center rounded-full text-[10px] uppercase">{risk || '(bos)'}</Badge>
+                      <span className="font-mono text-xs text-muted-foreground">{count.toLocaleString('en-US')}</span>
+                    </div>
+                  ))}
+              </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-semibold text-muted-foreground">Jev güvenlik tier'ı</div>
+                  {Object.entries(data.audit.jev_by_tier).length === 0
+                    ? <div className="text-xs text-muted-foreground">henüz Jev kararı yok</div>
+                    : Object.entries(data.audit.jev_by_tier).sort((a,b)=>b[1]-a[1]).map(([tier, count]) => (
+                      <div key={tier} className="flex items-center gap-2 text-sm">
+                        <Badge variant={tier === 'SAFE' ? 'success' : tier === 'WATCH' ? 'warning' : 'destructive'} className="w-24 justify-center rounded-full text-[10px] uppercase">{tier || '(bos)'}</Badge>
+                        <span className="font-mono text-xs text-muted-foreground">{count.toLocaleString('en-US')}</span>
+                      </div>
+                    ))}
+                  <div className="pt-1 text-[11px] text-muted-foreground">
+                    tavan <span className="font-mono">{data.audit.min_tier}</span> · spec'siz kabul <span className="font-mono">{data.audit.accept_specless ? 'açık' : 'kapalı'}</span> · saatlik fren <span className="font-mono">{data.audit.accept_per_hour}</span>
+                  </div>
+                </div>
+              </div>
+
+              {data.audit.recent.length > 0 && (
+                <div className="overflow-x-auto pt-1">
+                  <table className="w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground border-b">
+                      <tr>
+                        <th className="py-2 text-left font-semibold">Zaman</th>
+                        <th className="py-2 text-left font-semibold">Karar</th>
+                        <th className="py-2 text-left font-semibold">Risk</th>
+                        <th className="py-2 text-left font-semibold">Jev</th>
+                        <th className="py-2 text-left font-semibold">Tutar</th>
+                        <th className="py-2 text-left font-semibold">Gerekçe</th>
+                        <th className="py-2 text-right font-semibold">seq</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.audit.recent.map((a) => (
+                        <tr key={`a-${a.room}-${a.seq}`} className="border-b last:border-0">
+                          <td className="py-2 whitespace-nowrap font-mono text-[11px] text-muted-foreground">{a.created_at.slice(11,19)}</td>
+                          <td className="py-2"><Badge variant={a.decision === 'accept' ? 'success' : 'secondary'} className="rounded-full text-[10px] uppercase">{a.decision}</Badge></td>
+                          <td className="py-2"><Badge variant={a.risk === 'safe' ? 'success' : a.risk === 'watch' ? 'warning' : 'destructive'} className="rounded-full text-[10px] uppercase">{a.risk || '—'}</Badge></td>
+                          <td className="py-2"><span className="font-mono text-[11px] text-muted-foreground">{a.jev_tier || '—'}{a.jev_confidence != null ? ` ${a.jev_confidence.toFixed(2)}` : ''}</span></td>
+                          <td className="py-2 font-mono text-[11px]">{a.amount} {a.asset}</td>
+                          <td className="py-2 max-w-[320px] truncate font-mono text-[11px] text-muted-foreground" title={a.reason}>{a.reason}</td>
+                          <td className="py-2 text-right font-mono text-[11px] text-muted-foreground">{a.seq}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* recent frames */}
           <Card>

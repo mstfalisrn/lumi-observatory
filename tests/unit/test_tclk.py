@@ -4,11 +4,18 @@ import hashlib
 
 from connectors.tclk import (
     build_accept,
+    build_heartbeat,
     build_offer,
     build_reveal,
+    contract_id,
+    deal_room,
     new_hashlock,
     offer_allows,
+    offer_difficulty,
     offer_expired,
+    offer_rails,
+    offer_raw_spec,
+    offer_spec,
     parse_frame,
     ref_matches,
     spec_short,
@@ -96,15 +103,79 @@ def test_new_hashlock_statement_matches_preimage():
 
 
 def test_build_accept_and_reveal_roundtrip():
-    a = parse_frame(build_accept("0xabc123abc123abc1", "0x" + "11" * 32))
+    a = parse_frame(
+        build_accept(
+            sender="did:key:z6Mktest",
+            ref="0x" + "ab" * 32,
+            statement="0x" + "11" * 32,
+            contract="0x" + "cd" * 32,
+            nonce="0f1e2d3c4b5a6978",
+        )
+    )
     assert a is not None and a.kind == "accept"
-    assert a.ref == "0xabc123abc123abc1"
+    assert a.ref == "0x" + "ab" * 32
+    # the payer recomputes the contract from {offer, accept-core}: both the
+    # offer id (ref) and our derived contract id have to be on the wire.
+    assert a.data["contract"] == "0x" + "cd" * 32
+    assert a.data["nonce"] == "0f1e2d3c4b5a6978"
+    assert a.data["from"] == "did:key:z6Mktest"
     assert validate_frame(a) == []
     r = parse_frame(build_reveal("0x" + "22" * 32))
     assert r is not None and r.kind == "reveal"
     assert validate_frame(r) == []
     # the reveal secret is never part of the masked summary
     assert "22" * 32 not in r.safe_summary()
+
+
+def test_heartbeat_frame_is_valid_and_deal_room_derives_from_contract():
+    h = parse_frame(
+        build_heartbeat(
+            sender="did:key:z6Mktest", contract="0x" + "cd" * 32, nonce="0f1e2d3c4b5a6978"
+        )
+    )
+    assert h is not None and h.kind == "heartbeat"
+    assert validate_frame(h) == []
+    assert deal_room("0x" + "cd" * 32) == "mb-p-tclk-" + "cd" * 8
+
+
+def test_contract_id_is_deterministic_and_binds_the_accept():
+    offer = {"type": "offer", "id": "0x" + "ab" * 32, "amount": "200", "asset": "FLOP"}
+    core = {"from": "did:key:z6Mktest", "ref": offer["id"], "statement": "0x" + "11" * 32,
+            "nonce": "0f1e2d3c4b5a6978"}
+    first = contract_id(offer, core)
+    assert first.startswith("0x") and len(first) == 66
+    assert contract_id(offer, core) == first  # stable
+    assert contract_id(offer, {**core, "nonce": "ffffffffffffffff"}) != first  # binds the accept
+
+
+def test_offer_spec_reads_job_context_and_rails_list():
+    raw = (
+        'tclk1 {"type":"offer","amount":"100","asset":"FLOP","id":"0x' + "ab" * 32 + '",'
+        '"nonce":"0f1e2d3c4b5a6978","rails":["paper","flop-htlc"],'
+        '"job":{"proto":"math","context":"math | [difficulty 2/3] Give the smallest prime '
+        'greater than 1000. reward tier 2/5"}}'
+    )
+    f = parse_frame(raw)
+    assert f is not None
+    assert "smallest prime" in offer_spec(f)
+    assert offer_spec(f).startswith("math")  # proto is prefixed onto the brief
+    assert offer_rails(f) == ["paper", "flop-htlc"]
+    assert offer_difficulty(f) == 2
+
+
+def test_offer_raw_spec_treats_proto_only_offer_as_specless():
+    """A proto is a transport hint, not a task — the live market's a2a offers
+    carry job={'id','proto'} and no brief, so they must stay spec-less."""
+    f = parse_frame(
+        'tclk1 {"type":"offer","amount":"50","asset":"FLOP","rail":"flop-htlc",'
+        '"nonce":"aa11","job":{"id":"0xdead","proto":"a2a"}}',
+        signed=True,
+    )
+    assert f is not None
+    assert offer_raw_spec(f) == ""
+    assert offer_spec(f) == ""
+    assert offer_allows(f, "flop-htlc,x402", "1000000", "a2a,market", False)[0] is False
+    assert offer_allows(f, "flop-htlc,x402", "1000000", "a2a,market", True)[0] is True
 
 
 def test_offer_allows_gating():
