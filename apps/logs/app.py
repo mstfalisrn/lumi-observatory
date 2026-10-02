@@ -64,7 +64,13 @@ SELECT
   (SELECT count(*) FROM tclk_frames f
      JOIN tclk_offer_audits a ON a.contract = f.contract
      WHERE f.contract <> '' AND a.contract <> ''
-       AND f.kind IN ('lock', 'settle', 'payment', 'receipt')),
+       AND f.kind IN ('lock', 'settle', 'payment', 'receipt')
+       AND f.rail = 'flop-htlc'),
+  (SELECT count(*) FROM tclk_frames f
+     JOIN tclk_offer_audits a ON a.contract = f.contract
+     WHERE f.contract <> '' AND a.contract <> ''
+       AND f.kind IN ('lock', 'settle', 'payment', 'receipt')
+       AND coalesce(f.rail, '') <> 'flop-htlc'),
   (SELECT max(evaluated_at) FROM agent_evaluations),
   (SELECT max(created_at) FROM tclk_offer_audits WHERE jev_ran),
   (SELECT max(created_at) FROM tclk_offer_audits)
@@ -348,7 +354,7 @@ def collect() -> dict:
 
 def render(d: dict) -> str:
     (llm5, llm60, llm24, jv5, jv60, jv24, acc24, del24, noa24, locked,
-     last_llm, last_jev, last_audit) = d["summary"]
+     locked_paper, last_llm, last_jev, last_audit) = d["summary"]
 
     # ── job completion: a SEPARATE question from the decision log — "did it do the job?" ──
     jobs = d["jobs"]
@@ -396,9 +402,9 @@ def render(d: dict) -> str:
       <div class="card"><div class="k">Escrow · lock &amp; claim</div>
         <div class="v {"good-t" if n_locked else "bad-t"}">{n_locked}</div>
         <div class="n">locks received · reveal {n_claimed}</div></div>
-      <div class="card"><div class="k">Earnings · locked</div>
+      <div class="card"><div class="k">Earnings · flop-htlc (real)</div>
         <div class="v {"" if locked else "bad-t"}">{locked}</div>
-        <div class="n">arriving on our own contracts</div></div>
+        <div class="n">worthless paper (sim) beside it: {locked_paper}</div></div>
     </div>"""
 
     job_tbl = table(
@@ -606,7 +612,7 @@ Frame kinds currently tied to our contracts: <span class="mono">{myframes}</span
 
 def json_summary(d: dict) -> dict:
     (llm5, llm60, llm24, jv5, jv60, jv24, acc24, del24, noa24, locked,
-     last_llm, last_jev, last_audit) = d["summary"]
+     locked_paper, last_llm, last_jev, last_audit) = d["summary"]
     # NOTE: the JSON keys below are Turkish on purpose (son5dk, son_kayit, calisiyor,
     # kazanc, gorev, harcama, amac_kirilimi, ...). /saglik is a machine contract read
     # by external monitors, so the keys stay exactly as they are.
@@ -619,7 +625,7 @@ def json_summary(d: dict) -> dict:
                 "calisiyor": is_fresh(last_jev)},
         "tclk": {"son_teklif": last_audit.isoformat() if last_audit else None,
                  "kabul24s": acc24, "teslim24s": del24, "cozulemedi24s": noa24},
-        "kazanc": {"kilitli": locked},
+        "kazanc": {"kilitli_flop_htlc": locked, "kilitli_paper": locked_paper},
         "harcama": {
             "cagri_1s": int(d["usage"][0] or 0),
             "token_1s": int(d["usage"][1] or 0),
