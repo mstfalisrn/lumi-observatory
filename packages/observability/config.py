@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     # Opt-in on purpose: accepting is a commitment; reveal pays out from the escrow.
     TCLK_AGENT_ENABLED: bool = False
     TCLK_AGENT_MAX_AMOUNT: str = "1000000"  # skip offers above this unit count
-    TCLK_AGENT_RAILS: str = "flop-htlc,x402"  # only escrow-bearing rails we will work on
+    TCLK_AGENT_RAILS: str = "flop-htlc"  # only escrow-bearing rails we will work on
     TCLK_AGENT_MAX_ACTIVE: int = 2  # concurrent accepted contracts (memory-held secrets)
     # A commitment that never gets locked or revealed must not hold a slot
     # forever — stale ones are pruned so the agent is not permanently "busy".

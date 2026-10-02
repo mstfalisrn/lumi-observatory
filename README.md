@@ -33,6 +33,7 @@ LUMI is a self-hosted agentic runtime for observable, policy-controlled automati
 - **Memory with pgvector** -- Candidate -> approved/active lifecycle with embedding retrieval (`pgvector`) at task start; superseded/expired archival keeps history intact.
 - **Bounded capabilities (skills)** -- Source-controlled JSON manifests (`skills/*.json`) declare which tools a capability may call and which scope fields are required. An operator picks a skill and an explicit target (approved HTTPS URL, `owner/repository`, or configured room) before a run; the planner rejects out-of-scope targets before execution, and unknown tools never reach the registry.
 - **Proactive sources** -- Opt-in monitored sources (`http_json`, `github_repo`, `internal_health`, `technocore_room`) with content-hash change detection, exponential backoff on errors, bounded metadata-only storage, and an append-only observation trail. Changed content may become a memory *candidate* -- never an auto-activated record.
+- **tclk market agent (value rails only)** -- Layered, fail-closed gating of the tclk/1 offer market: deterministic audit, Jev veto, operator risk ceiling, brief resolution, lane rate limits, concurrency caps. Only escrow-bearing rails are worked (`flop-htlc` by default; `paper` simulation is skipped at the gate). A deterministic solver answers the exact-answer families (tip, protocol transcript fold, validation, math, `/kv` note, HTTP probe, docs) before the model is ever asked; accepted deals run end to end to reveal and receipt, and an optional judged-deal worker works the same loop against a judged-deal feed.
 - **Report-only digests + opt-in risk alerts** -- Deterministic local digest reports aggregate stored changes and risk metadata without any external call. External digest delivery and RISKY/DANGEROUS Telegram alerts are each behind their own explicit flag, off by default.
 - **Trust Center UI** -- Tier distribution (SAFE / WATCH / RISKY / DANGEROUS), live monitoring and alert state, capability manifest browser, and evaluation history with remote message previews explicitly labeled *untrusted*.
 - **Live SSE stream** -- `GET /api/v1/events/stream` (`text/event-stream`) with `Last-Event-ID` / `global_seq` cursor, auto-reconnect, and DB-backed global ordering.
@@ -320,7 +321,27 @@ RISK_ALERTS_ENABLED=true    # only now may RISKY/DANGEROUS findings reach Telegr
 
 Triage everything in the **Trust Center** tab: tier distribution, live control state, per-message reason, and raw remote text (labeled *untrusted*).
 
-### 6. Verify an installation
+### 6. Work the tclk market on value rails only
+
+Arm the market agent and keep it on escrow-bearing rails:
+
+```bash
+TCLK_ENABLED=true
+TCLK_MONITOR_ROOMS=tclk-offers        # rooms parsed for offer frames
+TCLK_AGENT_ENABLED=true
+TCLK_AGENT_RAILS=flop-htlc            # value rails only -- paper is skipped
+TCLK_AGENT_MIN_TIER=watch             # operator risk ceiling
+TCLK_ACCEPT_REQUIRE_BRIEF=true        # never accept what we cannot answer
+```
+
+Every offer is audited whether it is accepted or not (`tclk_offer_audits`), and
+each gate can only tighten the decision. Accepted deals are worked to delivery,
+and the escrow is revealed and receipted as soon as the payer locks. The
+dashboard (`apps/logs`) counts earnings **per rail**, so simulated (`paper`)
+deals can never read as money. Full knob list:
+[docs/CONFIGURATION.md](./docs/CONFIGURATION.md).
+
+### 7. Verify an installation
 
 ```bash
 ./scripts/secret-scan.sh .          # 0 findings required
@@ -352,6 +373,8 @@ Full details: [SECURITY.md](./SECURITY.md)
 |   |-- worker/         # Agent run execution
 |   |-- scheduler/      # Periodic source scans, memory promotion, digests
 |   |-- migrate/        # Alembic one-shot runner
+|   |-- earn/           # Earning loops: market trader + judged-deal worker (blockrewards.py)
+|   |-- logs/           # Live dashboard (rail-aware earnings) + /saglik JSON
 |   +-- web/            # React + Vite + Tailwind 4 frontend (built into API image)
 |-- packages/           # Shared Python packages (policy, memory, observability, connectors)
 |   |-- agent_core/skills.py      # source-controlled capability manifests

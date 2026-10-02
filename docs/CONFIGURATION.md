@@ -285,29 +285,35 @@ docker compose logs -f
 
 ## Jev decision layer (TypeSafe System One)
 
-Jev is an *evaluation* model on the Vercel AI Gateway: you post a state plus
-typed questions (`choice` / `score` / `boolean` / `noul`) and get calibrated
-answers with probabilities. It never writes prose, answers in ~200 ms and costs
-about **$0.00002 per call** (input $0.042/M, output free). LUMI uses it as the
+Jev is an *evaluation* model served by TypeSafe directly: you post a state plus
+typed questions (`choice` / `score` / `noul`) and get calibrated answers with
+probabilities. It never writes prose, answers in ~200 ms and costs about
+**$0.00002 per call** (input $0.042/M, output free). LUMI uses it as the
 first decision layer; the chat LLM then only runs on the uncertain band.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `JEV_ENABLED` | `false` | Master switch (fail-closed: any error falls back) |
-| `JEV_BASE_URL` | `https://ai-gateway.vercel.sh/v1` | Gateway base URL (https + allowlisted host only) |
-| `JEV_API_KEY` | — | Gateway API key (never returned by any API response) |
-| `JEV_MODEL` | `typesafe-ai/jev` | Evaluation model id |
-| `JEV_ALLOWED_HOSTS` | `ai-gateway.vercel.sh` | Host allowlist for the base URL (SSRF guard) |
+| `JEV_BASE_URL` | `https://api.typesafe.ai/v1` | API base URL (https + allowlisted host only) |
+| `JEV_EVAL_PATH` | `/systemone` | Evaluation endpoint path |
+| `JEV_API_KEY` | — | TypeSafe API key (never returned by any API response) |
+| `JEV_MODEL` | `jev-latest` | Evaluation model id |
+| `JEV_ALLOWED_HOSTS` | `api.typesafe.ai` | Host allowlist for the base URL (SSRF guard) |
 | `JEV_TIMEOUT_SECONDS` | `15` | Per-call timeout |
 | `JEV_AUTO_THRESHOLD` | `0.90` | ≥ this confidence: act on the decision |
 | `JEV_REVIEW_THRESHOLD` | `0.60` | ≥ this: escalate (human/LLM); below: drop |
 | `JEV_MAX_CALLS_PER_MINUTE` | `60` | Spike guard |
 | `JEV_DAILY_CALL_CAP` | `20000` | Budget guard (~$0.40/day) |
+| `JEV_COST_PER_MTOK_INPUT` | `0.042` | Input price used to estimate per-call cost |
 | `JEV_EVALUATOR_ENABLED` | `false` | Lobby risk triage |
 | `JEV_POLICY_ENABLED` | `false` | Tool-call policy pre-check (can only tighten) |
 | `JEV_TCLK_ENABLED` | `false` | tclk offer legitimacy veto |
+| `JEV_TCLK_REQUIRE_LEGIT` | `false` | When true, low legitimacy alone vetoes an offer |
 | `JEV_POLICY_TOOLS` | read-only tools | Which tools the policy pre-check watches |
 | `JEV_ESCALATE_TO_LLM` | `true` | Uncertain evaluator band escalates to the chat LLM |
+
+The `boolean` question type is normalized to `noul` on the wire: the API
+rejects `boolean` with HTTP 400.
 
 **Decision points**
 
@@ -329,3 +335,70 @@ without the state text.
 **Cost.** Triage per message ≈ $0.00002; a full lobby day (≈100k messages) would
 be ≈ $2 — versus a chat-LLM call at roughly 10-50× the price per message. The
 LLM escalation band typically covers a small minority of messages.
+
+---
+
+## tclk market agent (value rails only)
+
+The scheduler can work the tclk/1 offer market (Technocore). Every incoming
+offer runs through layered gates, and **each layer can only tighten the
+decision** — `accept → skip`, never the reverse:
+
+1. **Deterministic audit** (`packages/connectors/tclk.py::audit_offer`): kind and
+   signature, rail intersection, payee-side refusal, amount cap, expiry,
+   difficulty ceiling, capability keywords.
+2. **Jev veto**: scam/hostile-tier signals, at or above `JEV_REVIEW_THRESHOLD`.
+3. **Operator risk ceiling** (`TCLK_AGENT_MIN_TIER`).
+4. **Brief resolution**: an offer whose brief cannot be resolved (no inline spec
+   and no resolvable `job` pointer) is refused unless `TCLK_ACCEPT_REQUIRE_BRIEF=false`.
+5. **Lane rate limit**: rolling hourly cap, plus a validation-lane reserve.
+6. **Concurrency**: `TCLK_AGENT_MAX_ACTIVE` deals in flight.
+7. **Uniqueness**: one accept per `(author, nonce)`.
+
+Accepted deals run end to end: accept → escrow secret (derived from the offer id,
+so a lock arriving after a restart is still claimable) → heartbeat → exact answer
+from the deterministic solver (`tip`, `protocol` transcript fold, `validation`,
+math, `/kv` note, HTTP probe, docs) or the producer model → delivery → on lock,
+reveal and receipt.
+
+**Rails are the money question.** Only rails that actually carry escrow are
+worked. The default ships as:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `TCLK_ENABLED` | `false` | Master switch for tclk surveillance/agent |
+| `TCLK_MONITOR_ROOMS` | — | Rooms parsed for offer frames (zero-LLM) |
+| `TCLK_AGENT_ENABLED` | `false` | Arms the accept/deliver loop |
+| `TCLK_AGENT_RAILS` | `flop-htlc` | **Value rails only** — `paper` (simulation) is skipped at the gate |
+| `TCLK_AGENT_MAX_AMOUNT` | `100000000` | Amount ceiling |
+| `TCLK_AGENT_MAX_DIFFICULTY` | `3` | Difficulty ceiling (0 = off) |
+| `TCLK_AGENT_TASK_PATTERNS` | — | Capability keywords matched against the spec |
+| `TCLK_AGENT_MIN_TIER` | `watch` | Highest audit risk tier the operator accepts |
+| `TCLK_AGENT_ACCEPT_SPECLESS` | `true` | Spec-less offers map to the default digest task |
+| `TCLK_ACCEPT_REQUIRE_BRIEF` | `true` | Refuse offers whose brief cannot be resolved |
+| `TCLK_AGENT_ACCEPT_PER_HOUR` | `60` | Rolling hourly accept cap (0 disables) |
+| `TCLK_AGENT_VALIDATION_RESERVE` | `12` | Extra slots reserved for the validation lane |
+| `TCLK_AGENT_MAX_ACTIVE` | `24` | Concurrent deals in flight |
+| `TCLK_AGENT_ACTIVE_TTL` | `1800` | Seconds before an idle deal drops from memory |
+| `TCLK_AGENT_PRODUCE` | `true` | Fall back to the chat model for non-verifiable briefs |
+| `TCLK_PRODUCE_PER_HOUR` | `60` | Production rate limit |
+
+**Judged-deal worker (optional host service).** `apps/earn/blockrewards.py`
+follows a judged-deal feed, caches offer frames from the board, answers each
+brief deterministically and works the deal (accept → heartbeat → delivery →
+reveal → receipt), with a retry queue, per-offer dedupe and a deal-room lock
+watch. It reads its settings from the environment:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `BR_STATE` | `/var/lib/lumi-earn/blockrewards.json` | State file (cursors, cache, queue) |
+| `BR_PER_HOUR` | `60` | Accept cap per rolling hour |
+| `BR_POLL_S` | `5` | Board poll interval |
+| `BR_MIN_LEFT_MIN` | `3` | Do not start a deal with less time left |
+| `BR_FAMILIES` | empty | Optional family filter (empty = let the solver decide) |
+| `BR_BACKFILL` | `20000` | Board messages replayed on first run to warm the offer cache |
+
+**Dashboard.** `apps/logs/app.py` renders a live page plus `/saglik` (JSON).
+Earnings are counted **per rail**: `kilitli_flop_htlc` is the headline,
+`kilitli_paper` is shown separately as the simulation it is — simulated deals
+can never read as money.
