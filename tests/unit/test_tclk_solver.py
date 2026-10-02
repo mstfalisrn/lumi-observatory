@@ -5,7 +5,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps" / "scheduler"))
 
-from tclk_solver import solve, solve_documentation, solve_math, solve_note, solve_probe, strip_banner
+from tclk_solver import (
+    solve,
+    solve_documentation,
+    solve_math,
+    solve_note,
+    solve_probe,
+    solve_protocol,
+    solve_tip,
+    strip_banner,
+)
 
 MODINV = (
     "math | [difficulty 2/3] Find the modular inverse of 601386 modulo 60599437 "
@@ -149,3 +158,55 @@ def test_strip_banner_drops_the_untrusted_preamble():
         "review From https://example.com/spec.md: What prefix starts every frame?"
     )
     assert strip_banner("") == ""
+
+
+# --- blockrewards families (2026-10-02): tip + protocol fold -----------------
+
+TIP_BRIEF = (
+    "tip | Pub quiz award: top marks (3/3) in /r/pub-quiz. Nothing to do: accept, "
+    "then reveal the single word CHEERS to claim it. | reward tier 1/5 | "
+    "done looks like: one word: CHEERS | deliver as one signed message in the deal room, then reveal."
+)
+
+PROTO_TRANSCRIPT = (
+    "protocol | Fold this tclk/1 transcript with the reference rules. | reward tier 4/5 | "
+    "done looks like: one line: the final status word, then one sentence naming the rejected "
+    "frame and the reason, or 'no rejected records'. | MATERIAL: tclk-offers | "
+    "2026-09-28T08:45:25.631Z | did:key:z6MkemL7N8jvu1ccXZDch1KS1538ke32duBayvW5N3Bvvbht | "
+    'tclk1 {"amount":"7634","asset":"PAPER","claimByMs":1790587525631,"expiresMs":1790585725631,'
+    '"from":"did:key:z6MkemL7N8jvu1ccXZDch1KS1538ke32duBayvW5N3Bvvbht",'
+    '"id":"0x4cce50947d0fb224051e270fbd0c33fc94d8796c03d27d31aeaf3dd3cb444b1e",'
+    '"job":{"id":"task-7d3fd49f","proto":"a2a"},"lock":"hash","nonce":"28858be8502af12c",'
+    '"rails":["paper"],"refundAfterMs":1790589325631,"role":"payer","type":"offer"} '
+    "tclk-offers | 2026-09-28T08:45:45.631Z | did:key:z6MkiALWpd8drq93rEQCzFhbtxXR4RVDkskWN3BN1py3qhio | "
+    'tclk1 {"contract":"0x7257143f5a86b8735d8037a2f0bfc6910f2158e432564137031508dd0bd46ff3",'
+    '"from":"did:key:z6MkiALWpd8drq93rEQCzFhbtxXR4RVDkskWN3BN1py3qhio","nonce":"501015796f266647",'
+    '"ref":"0x4cce50947d0fb224051e270fbd0c33fc94d8796c03d27d31aeaf3dd3cb444b1e",'
+    '"statement":"0x70a43e7e752a9b9c7a84b8b9c03e095690c0d71bfb681208bb6a0d1f7a4919fe","type":"accept"} '
+    "mb-p-tclk-7257143f5a86b873 | 2026-09-28T08:46:05.631Z | did:key:z6MkemL7N8jvu1ccXZDch1KS1538ke32duBayvW5N3Bvvbht | "
+    'tclk1 {"contract":"0x7257143f5a86b8735d8037a2f0bfc6910f2158e432564137031508dd0bd46ff3",'
+    '"from":"did:key:z6MkemL7N8jvu1ccXZDch1KS1538ke32duBayvW5N3Bvvbht","reason":"spec withdrawn","type":"cancel"}'
+)
+
+
+def test_tip_brief_yields_the_exact_word():
+    assert solve_tip(TIP_BRIEF) == "CHEERS"
+    assert solve(TIP_BRIEF) == "CHEERS"
+    # no word in the brief, no guess
+    assert solve_tip("tip | nothing to do here") is None
+
+
+def test_protocol_transcript_folds_to_cancelled():
+    assert solve_protocol(PROTO_TRANSCRIPT) == "cancelled no rejected records"
+    assert solve(PROTO_TRANSCRIPT) == "cancelled no rejected records"
+
+
+def test_protocol_reports_the_first_rejected_frame():
+    # a heartbeat from a third party in the deal room is rejected by the fold
+    bad = PROTO_TRANSCRIPT + (
+        " mb-p-tclk-7257143f5a86b873 | 2026-09-28T08:46:10.631Z | did:key:z6MkuN98HgBZEgVEwG4HeB8Hj2hasfrctByKma7GJyueF92M | "
+        'tclk1 {"contract":"0x7257143f5a86b8735d8037a2f0bfc6910f2158e432564137031508dd0bd46ff3",'
+        '"from":"did:key:z6MkuN98HgBZEgVEwG4HeB8Hj2hasfrctByKma7GJyueF92M","nonce":"abc12345deadbeef","type":"heartbeat"}'
+    )
+    answer = solve_protocol(bad)
+    assert answer is not None and answer.startswith("cancelled rejected heartbeat frame:")

@@ -333,6 +333,40 @@ def solve_validation(brief: str) -> str | None:
     return None
 
 
+# --- protocol fold (blockrewards protocol family) ---------------------------
+
+_TIP_RE = re.compile(r"done looks like:\s*one word:\s*([A-Za-z0-9][\w-]{0,31})", re.I)
+_TIP_RE2 = re.compile(r"reveal the single word\s+([A-Za-z0-9][\w-]{0,31})", re.I)
+
+
+def solve_tip(brief: str) -> str | None:
+    """Tip family: the whole job is revealing one word. Never invent it."""
+    if not re.search(r"\btip\b", brief[:40], re.I):
+        return None
+    for rx in (_TIP_RE, _TIP_RE2):
+        m = rx.search(brief)
+        if m:
+            return m.group(1)
+    return None
+
+
+def solve_protocol(brief: str) -> str | None:
+    """Protocol-conformance family: fold the transcript with the reference rules.
+
+    The material is the note's `room | time | sender | frame line` table; the
+    fold is the ported reference state machine (br_fold). The answer is the
+    final status word plus the first rejection, or 'no rejected records'.
+    """
+    if "MATERIAL:" not in brief or "tclk1 " not in brief:
+        return None
+    try:  # in the image the scheduler is a package; tests import it top-level
+        from apps.scheduler import br_fold
+    except ImportError:
+        import br_fold  # type: ignore[no-redef]
+
+    return br_fold.answer(brief)
+
+
 def solve(
     brief: str,
     *,
@@ -342,6 +376,12 @@ def solve(
     """One-line answer for a brief, or None when no handler is confident."""
     if not brief:
         return None
+    answer = solve_tip(brief)
+    if answer is not None:
+        return answer
+    answer = solve_protocol(brief)
+    if answer is not None:
+        return answer
     answer = solve_validation(brief)
     if answer is not None:
         return answer
