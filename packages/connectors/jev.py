@@ -277,14 +277,21 @@ class JevClient:
 
         await self._cap_check(purpose)
 
-        payload = {"model": model or self.model, "state": state, "questions": questions}
+        # TypeSafe exposes three question types (choice/score/noul); "boolean" was
+        # only ever the gateway's alias for a yes/no question, so it is normalized on
+        # the wire and callers may keep using either spelling.
+        send_questions = {
+            name: ({**q, "type": "noul"} if q.get("type") == "boolean" else q)
+            for name, q in questions.items()
+        }
+        payload = {"model": model or self.model, "state": state, "questions": send_questions}
         started = time.monotonic()
         try:
             client = self._client or httpx.AsyncClient(timeout=self.timeout)
             close_after = self._client is None
             try:
                 resp = await client.post(
-                    f"{self.base_url}/evaluate",
+                    f"{self.base_url}{settings.JEV_EVAL_PATH or '/evaluate'}",
                     json=payload,
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
@@ -328,6 +335,15 @@ class JevClient:
                 cost = float(meta.get(key) or 0.0) or cost
             except Exception:
                 continue
+        in_tokens = int(usage.get("input_tokens") or usage.get("inputTokens") or 0)
+        out_tokens = int(usage.get("output_tokens") or usage.get("outputTokens") or 0)
+        if not cost:
+            # TypeSafe (direct) reports tokens only; estimate at list price so the
+            # daily budget guard still sees a number instead of a silent zero.
+            cost = (
+                in_tokens / 1_000_000 * float(settings.JEV_COST_PER_MTOK_INPUT or 0.0)
+                + out_tokens / 1_000_000 * float(settings.JEV_COST_PER_MTOK_OUTPUT or 0.0)
+            )
 
         await self._record_call(purpose)
         STATS.calls += 1
@@ -347,8 +363,8 @@ class JevClient:
         return JevResult(
             answers=answers,
             model=str(data.get("model") or payload["model"]),
-            input_tokens=int(usage.get("inputTokens") or 0),
-            output_tokens=int(usage.get("outputTokens") or 0),
+            input_tokens=in_tokens,
+            output_tokens=out_tokens,
             cost_usd=cost,
             latency_ms=latency_ms,
         )

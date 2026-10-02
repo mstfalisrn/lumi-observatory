@@ -13,7 +13,10 @@ from connectors.agent_evaluator import _conservative_pick, _merge_conservative, 
 from observability.config import settings
 from policy.engine import PolicyEngine
 
-EVALUATE_URL = "https://ai-gateway.vercel.sh/v1/evaluate"
+
+def evaluate_url() -> str:
+    """Built from settings so the configured path (gateway /evaluate, TypeSafe /systemone) is honoured."""
+    return f"{settings.JEV_BASE_URL}{settings.JEV_EVAL_PATH}"
 
 
 @pytest.fixture(autouse=True)
@@ -42,9 +45,9 @@ def make_client(handler, **kwargs) -> jev.JevClient:
 
 def ok_handler(payload: dict):
     def handler(request: httpx.Request) -> httpx.Response:
-        assert str(request.url) == EVALUATE_URL
+        assert str(request.url) == evaluate_url()
         body = json.loads(request.content)
-        assert body["model"] == "typesafe-ai/jev"
+        assert body["model"] == settings.JEV_MODEL
         return httpx.Response(200, json=payload)
 
     return handler
@@ -397,3 +400,49 @@ async def test_policy_keeps_static_floor_and_fails_closed(monkeypatch):
     monkeypatch.setattr(settings, "JEV_ENABLED", True)
     monkeypatch.setattr(settings, "JEV_POLICY_ENABLED", False)
     assert (await PolicyEngine().decide_async("technocore_read", {})).decision == "ALLOW"
+
+
+@pytest.mark.asyncio
+async def test_typesafe_shape_tokens_only_cost_is_estimated():
+    """TypeSafe direct responses carry snake_case tokens and no gateway cost field."""
+    payload = {
+        "model": "jev-1.13.0",
+        "answers": {"tier": {"type": "choice", "choice": "SAFE", "probabilities": {"SAFE": 0.9}, "confidence": 0.9}},
+        "usage": {"input_tokens": 366, "output_tokens": 57},
+    }
+    client = make_client(ok_handler(payload))
+    res = await client.evaluate({"message": "x"}, {"tier": {"type": "choice", "instructions": "?"}})
+    assert res.model == "jev-1.13.0"
+    assert res.input_tokens == 366 and res.output_tokens == 57
+    # 366 input tokens at the configured list price (USD per million input tokens)
+    assert res.cost_usd == pytest.approx(366 / 1_000_000 * settings.JEV_COST_PER_MTOK_INPUT)
+
+
+@pytest.mark.asyncio
+async def test_path_follows_settings(monkeypatch):
+    """Switching providers is a config change: the client must honour JEV_EVAL_PATH."""
+    monkeypatch.setattr(settings, "JEV_EVAL_PATH", "/systemone")
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json={"model": "jev-1.13.0", "answers": {"tier": {"type": "noul", "noul": 0.5}}})
+
+    client = make_client(handler)
+    await client.evaluate({"message": "x"}, {"tier": {"type": "noul", "instructions": "?"}})
+    assert seen["url"].endswith("/systemone")
+
+
+@pytest.mark.asyncio
+async def test_boolean_question_is_normalized_to_noul():
+    """TypeSafe rejects 'boolean' with 400; the client sends the noul equivalent."""
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["payload"] = json.loads(request.content)
+        return httpx.Response(200, json={"model": "jev-1.13.0", "answers": {"q": {"type": "noul", "noul": 0.5}}})
+
+    client = make_client(handler)
+    res = await client.evaluate({"message": "x"}, {"q": {"type": "boolean", "instructions": "?"}})
+    assert seen["payload"]["questions"]["q"]["type"] == "noul"
+    assert res.prob("q") == 0.5

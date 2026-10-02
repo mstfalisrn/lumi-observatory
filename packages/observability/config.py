@@ -160,16 +160,23 @@ class Settings(BaseSettings):
     # uncertain band (confidence between review and auto thresholds). Disabled
     # by default and fail-closed: any error falls back to the previous path.
     JEV_ENABLED: bool = False
-    JEV_BASE_URL: str = "https://ai-gateway.vercel.sh/v1"
+    # TypeSafe serves the evaluation endpoint directly; the Vercel AI Gateway
+    # proxy that used to carry it now refuses free-tier keys (403 RestrictedModels).
+    JEV_BASE_URL: str = "https://api.typesafe.ai/v1"
     JEV_API_KEY: str = ""
-    JEV_MODEL: str = "typesafe-ai/jev"
-    JEV_ALLOWED_HOSTS: str = "ai-gateway.vercel.sh"
+    JEV_MODEL: str = "jev-latest"
+    JEV_EVAL_PATH: str = "/systemone"  # appended to BASE_URL; gateway used "/evaluate"
+    JEV_ALLOWED_HOSTS: str = "api.typesafe.ai"
     JEV_TIMEOUT_SECONDS: float = 15.0
     JEV_AUTO_THRESHOLD: float = 0.90  # >= auto: act on the decision
     JEV_REVIEW_THRESHOLD: float = 0.60  # >= review: escalate to human/LLM, else drop
     JEV_MAX_CALLS_PER_MINUTE: int = 24  # our own cap, kept under the gateway's ~30/window
     JEV_DAILY_CALL_CAP: int = 20000  # budget guard (~$0.40/day at 2e-5 per call)
     JEV_BACKOFF_SECONDS: float = 45.0  # circuit-breaker window after a gateway 429
+    # Direct TypeSafe responses carry token counts but no gateway cost field, so
+    # the cost estimate is computed from tokens (list price, USD per million).
+    JEV_COST_PER_MTOK_INPUT: float = 0.042
+    JEV_COST_PER_MTOK_OUTPUT: float = 0.0
     # Per-surface switches: each one turns Jev on for that decision point only.
     JEV_EVALUATOR_ENABLED: bool = False  # lobby risk triage
     JEV_POLICY_ENABLED: bool = False  # tool-call policy pre-check (can only tighten)

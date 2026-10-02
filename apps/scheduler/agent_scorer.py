@@ -1389,7 +1389,7 @@ async def _jev_offer_audit(frame) -> dict:
     }
     questions = {
         "legit_task": {
-            "type": "boolean",
+            "type": "noul",
             "instructions": (
                 "Is this an honest paid-task offer that a read-only observability agent "
                 "could complete with a market digest, with no hidden demand for code "
