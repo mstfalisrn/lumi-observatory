@@ -224,6 +224,17 @@ LIMIT %s
 # ── collection ─────────────────────────────────────────────────────────────
 
 
+def _scrub_rows(rows: list[tuple]) -> list[tuple]:
+    """Redact secret-like patterns in text cells at the data layer.
+
+    Every consumer (HTML page, /summary, /raw, the web-UI module) reads the
+    scrubbed rows, so a token pasted into a message can never be displayed by
+    the dashboard — redaction is not left to a single handler."""
+    from observability.security import redact
+
+    return [tuple(redact(v) if isinstance(v, str) else v for v in row) for row in rows]
+
+
 def collect(dsn_url: str | None = None) -> dict:
     """All queries on one connection — to keep page latency down."""
     import psycopg
@@ -233,7 +244,7 @@ def collect(dsn_url: str | None = None) -> dict:
 
         def run(sql: str, args: tuple = ()) -> list[tuple]:
             cur.execute(sql, args)
-            return cur.fetchall()
+            return _scrub_rows(cur.fetchall())
 
         def run_safe(sql: str, args: tuple = ()) -> list[tuple]:
             """If a query blows up (e.g. the table does not exist yet) do not take the page down."""

@@ -401,12 +401,20 @@ services:
       LOGS_PORT: "8000"
       LOGS_REFRESH_SECONDS: ${LOGS_REFRESH_SECONDS:-20}
       LOGS_ROWS: ${LOGS_ROWS:-25}
+      # dashboard access token (required once the service is published through
+      # a tunnel) and the read-only DSN it should use instead of the owner role
+      LOGS_AUTH_TOKEN: ${LOGS_AUTH_TOKEN:-}
+      LOGS_DATABASE_URL: ${LOGS_DATABASE_URL:-}
     ports:
       - "127.0.0.1:${LOGS_PORT_HOST:-3590}:8000"
     depends_on:
       lumi-postgres: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/summary',timeout=3)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=3)\""]
       interval: 20s
       timeout: 5s
       retries: 5

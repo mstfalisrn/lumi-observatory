@@ -11,11 +11,13 @@ It runs SELECT only; it writes to no table.
 
 from __future__ import annotations
 
+import hmac
 import html
 import json
 import os
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 # The data layer lives in packages/observability/live_log.py — shared with the
 # API (GET /api/v1/live/log) so the standalone page and the web-UI module can
@@ -32,6 +34,12 @@ from observability.live_log import (
 
 PORT = int(os.environ.get("LOGS_PORT", "8000"))
 REFRESH_S = int(os.environ.get("LOGS_REFRESH_SECONDS", "20"))
+# When set, every data route (/, /summary, /raw) requires it — this service is
+# commonly published through a tunnel, and an open dashboard would hand the
+# decision log and raw rows to anyone with the URL. Provide it via
+# `Authorization: Bearer <token>` or `?key=<token>`. Leave unset only while the
+# service is bound to loopback (the shipped compose network does that).
+AUTH_TOKEN = os.environ.get("LOGS_AUTH_TOKEN", "").strip()
 
 
 # ── helpers ─────────────────────────────────────────────────────────────
@@ -372,8 +380,25 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _authorized(self, parsed) -> bool:
+        if not AUTH_TOKEN:
+            return True  # not configured — keep this service on loopback only
+        auth = self.headers.get("Authorization", "")
+        if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:].strip(), AUTH_TOKEN):
+            return True
+        key = (parse_qs(parsed.query).get("key") or [""])[0]
+        return bool(key) and hmac.compare_digest(key, AUTH_TOKEN)
+
     def do_GET(self) -> None:
-        path = self.path.split("?")[0].rstrip("/") or "/"
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        # load balancer / compose health probe: no data, no auth
+        if path in ("/healthz", "/health"):
+            self._send(200, b'{"ok":true}', "application/json; charset=utf-8")
+            return
+        if not self._authorized(parsed):
+            self._send(401, b'{"detail":"unauthorized"}', "application/json; charset=utf-8")
+            return
         try:
             data = collect()
             if path in ("/", "/index.html"):
