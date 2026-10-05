@@ -205,6 +205,10 @@ LLM_MODEL=your-model
 
 `quickstart.sh` generates a random password if `ADMIN_PASSWORD_HASH` is still `CHANGE_ME` and prints it once to the log. Save it immediately — subsequent restarts validate against the stored hash.
 
+**Where the live password lives.** The environment hash is applied to the admin user on first boot, and after that **only when its value changes** (this is how `setup.sh --reconfigure` resets a password). A password changed from the web UI (**Settings → Şifre değiştir**, `POST /api/v1/auth/change-password`) is stored in the database and survives restarts — the API records the last applied env value in the `app_state` table, so an unchanged `.env` never reverts your choice. To force the env value to win again, change it in `.env` (any change counts) and restart the API.
+
+> `setup.sh` writes `.env` values with `$` escaped as `$$` on purpose: docker-compose interpolates `${...}` mappings, and a raw pbkdf2 hash (`pbkdf2_sha256$240000$...`) would otherwise be eaten by variable substitution.
+
 ## Telegram
 
 | Variable | Example | Notes |

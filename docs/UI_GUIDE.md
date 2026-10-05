@@ -44,7 +44,7 @@ Save it immediately. Verify the stack: `curl -s http://localhost:3525/health/rea
 | 6 | **Sources** | `sources` | Source registry — create controlled sources, enable/disable, manual scan, observation events, digest schedules |
 | 7 | **Trust Center** | `agents` | Tier distribution (SAFE/WATCH/RISKY/DANGEROUS), live monitoring + alert state, bounded capability manifests, evaluation history (remote text labeled *untrusted*) |
 | 8 | **Telegram** | `telegram` | Bot status, webhook health, allowed user IDs |
-| 9 | **Settings** | `settings` | Non-secret settings, LLM connectivity test (`POST /v1/settings/llm/test`) |
+| 9 | **Settings** | `settings` | Non-secret settings, password change (**Şifre değiştir** → `POST /v1/auth/change-password`), LLM connectivity test (`POST /v1/settings/llm/test`) |
 | 10 | **Reports** | `reports` | Evidence bundles, auditor packets, generated digest reports |
 | 11 | **Audit** | `audit` | Append-only run events with `global_seq`, verifier log |
 

@@ -719,3 +719,16 @@ class RoomArchive(_UUIDMixin, Base):
     bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+
+# ----------------------------------------------------------------------------
+# App state — tiny key/value store for system markers that must survive restarts
+# (e.g. which ADMIN_PASSWORD_HASH from the environment was applied last).
+# ----------------------------------------------------------------------------
+class AppState(Base):
+    __tablename__ = "app_state"
+
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )

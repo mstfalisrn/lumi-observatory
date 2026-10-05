@@ -18,6 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Inbox,
+  KeyRound,
   Sparkles,
   BarChart3,
   Shield,
@@ -1059,6 +1060,21 @@ export function TelegramPage() {
 // ---------- Settings ----------
 export function SettingsPage() {
   const { data, err, loading, reload } = useFetch<{app_env:string, llm_provider:string, llm_model:string, llm_base_url:string, llm_key_configured:boolean, run_max_iterations:number, run_max_wall_seconds:number}>('/v1/settings/non-secret')
+  const [curPw, setCurPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [newPw2, setNewPw2] = useState('')
+  const [pwMsg, setPwMsg] = useState('')
+  const [pwBusy, setPwBusy] = useState(false)
+  async function changePw(e: React.FormEvent) {
+    e.preventDefault(); setPwMsg('')
+    if (newPw.length < 8) { setPwMsg('⚠ yeni şifre en az 8 karakter olmalı'); return }
+    if (newPw !== newPw2) { setPwMsg('⚠ yeni şifreler eşleşmiyor'); return }
+    setPwBusy(true)
+    try {
+      await api('/v1/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password: curPw, new_password: newPw }) })
+      setPwMsg('✓ Şifre güncellendi'); setCurPw(''); setNewPw(''); setNewPw2('')
+    } catch (error) { setPwMsg('⚠ ' + errMsg(error)) } finally { setPwBusy(false) }
+  }
   if (loading) return <div className="space-y-5"><h1 className="text-xl font-bold tracking-tight">⚙️ Settings</h1><TableSkeleton rows={3}/></div>
   if (err) return <div className="space-y-5"><h1 className="text-xl font-bold tracking-tight">⚙️ Settings</h1><Err msg={err} onRetry={reload}/></div>
   return (
@@ -1076,6 +1092,24 @@ export function SettingsPage() {
             </div>
             <Settings className="h-4 w-4 text-muted-foreground shrink-0 mt-1" />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-white/10 bg-white/40 backdrop-blur-sm dark:bg-white/[0.02]">
+        <CardContent className="space-y-3 p-5">
+          <div>
+            <h3 className="text-sm font-bold tracking-tight flex items-center gap-2"><KeyRound className="h-4 w-4 text-muted-foreground" /> Şifre değiştir</h3>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">Giriş şifreni buradan güncelle. Yeni şifre kalıcıdır — kurulum sihirbazının .env değeri yalnızca kendisi değiştiğinde yeniden uygulanır.</p>
+          </div>
+          <form className="space-y-2.5" onSubmit={changePw}>
+            <Input type="password" autoComplete="current-password" placeholder="Mevcut şifre" value={curPw} onChange={e=>setCurPw(e.target.value)} />
+            <Input type="password" autoComplete="new-password" placeholder="Yeni şifre (en az 8 karakter)" value={newPw} onChange={e=>setNewPw(e.target.value)} />
+            <Input type="password" autoComplete="new-password" placeholder="Yeni şifre (tekrar)" value={newPw2} onChange={e=>setNewPw2(e.target.value)} />
+            <div className="flex items-center gap-3">
+              <Button type="submit" size="sm" className="rounded-xl" disabled={pwBusy || !curPw || !newPw}>{pwBusy ? 'Kaydediliyor…' : 'Şifreyi güncelle'}</Button>
+              {pwMsg && <span className={`text-xs font-medium ${pwMsg.startsWith('✓') ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{pwMsg}</span>}
+            </div>
+          </form>
         </CardContent>
       </Card>
       {data && (<Card><CardContent className="space-y-2.5 p-5 text-sm">

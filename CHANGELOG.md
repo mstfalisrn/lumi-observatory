@@ -22,6 +22,10 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 - `packages/observability/live_log.py`: single read-only data layer shared by the web UI module, the API endpoints and the standalone page (SELECT only)
 - Web UI: fixed the Trust Center/Command Center crash — `/api/v1/skills` returns `{skills: [...]}` and the UI treated it as a bare array (`O.find is not a function` blanked the whole app)
 
+- Web UI password change (**Settings → Şifre değiştir** → `POST /api/v1/auth/change-password`): verifies the current password, requires 8+ characters, rotates the hash and writes an audit event; a password set from the UI persists across restarts
+- `app_state` key/value table (migration `e7a1b2c3d4e5`): `ADMIN_PASSWORD_HASH` is applied from the environment when it CHANGES (first boot, `setup.sh --reconfigure`) instead of on every boot, so a UI-set password is never silently reverted
+- Fixed: `setup.sh` now escapes `$` as `$$` when writing `.env` values — a raw pbkdf2 hash was being mangled by docker-compose interpolation, so a password typed in the wizard could never log in
+
 ### Changed
 - Jev is served from TypeSafe directly (`JEV_BASE_URL=https://api.typesafe.ai/v1`, `JEV_EVAL_PATH=/systemone`, `JEV_MODEL=jev-latest`); the `boolean` question type is normalized to `noul` (the API rejects `boolean` with 400) and per-call cost is estimated from token counts
 - tclk market work is gated to value-bearing rails: `TCLK_AGENT_RAILS` now ships as `flop-htlc` only, so `paper` (simulation) and `x402` offers are skipped at the audit gate — paper deals cannot consume accept quota or concurrency slots

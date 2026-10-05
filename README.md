@@ -171,6 +171,7 @@ cp .env.example .env          # optional — quickstart.sh creates it if missing
 Open **http://localhost:3525**
 
 - First login: `ADMIN_EMAIL` (default `admin@example.com`) + password you set in the wizard (Step 1). If you used `quickstart.sh`/`--yes`, it generated a random password and printed it once — save it.
+- Change the password any time from the web UI: **Settings → Şifre değiştir** (no shell needed). `setup.sh --reconfigure` still works too — the `.env` value is re-applied on restart whenever it *changes*.
 - Verify: `curl -s http://localhost:3525/health/ready | jq` should return `{"status":"ready"}`.
 - Registration check: `docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler python apps/tools/flop_register.py --check --key-path /secrets/did.ed25519`
 - Logs: `docker compose logs -f`

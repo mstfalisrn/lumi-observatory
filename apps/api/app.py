@@ -35,6 +35,43 @@ log = logging.getLogger("lumi.api")
 # --- Lifespan: seed admin user ---
 from contextlib import asynccontextmanager
 
+_ADMIN_PW_MARK = "admin_password_env_hash"
+
+
+def _record_env_applied(s, applied, env_hash: str) -> None:
+    if applied is None:
+        s.add(models.AppState(key=_ADMIN_PW_MARK, value=env_hash))
+    else:
+        applied.value = env_hash
+
+
+async def _sync_admin_password(s, env_hash: str) -> None:
+    """Apply ADMIN_PASSWORD_HASH to the admin user — but only when it changes.
+
+    The environment hash is the bootstrap source of truth: it is applied on the
+    first boot and whenever compose passes a NEW value (setup.sh --reconfigure).
+    A password set from the web UI lives in the database alone, so re-applying
+    an unchanged env value on every boot would silently revert it; the marker in
+    app_state records which env value was applied last.
+    """
+    res = await s.execute(select(models.User).where(models.User.username == settings.ADMIN_EMAIL))
+    u = res.scalar_one_or_none()
+    applied = await s.get(models.AppState, _ADMIN_PW_MARK)
+    if u is None:
+        s.add(models.User(username=settings.ADMIN_EMAIL, display_name="Admin",
+                          role="admin", is_active=True, password_hash=env_hash))
+        _record_env_applied(s, applied, env_hash)
+        await s.commit()
+        log.info("admin user seeded: %s", settings.ADMIN_EMAIL)
+        return
+    if applied is not None and applied.value == env_hash:
+        return  # env unchanged since the last apply — keep the current DB value
+    if u.password_hash != env_hash:
+        u.password_hash = env_hash
+        log.info("admin password applied from ADMIN_PASSWORD_HASH")
+    _record_env_applied(s, applied, env_hash)
+    await s.commit()
+
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
@@ -42,16 +79,7 @@ async def _lifespan(_app: FastAPI):
     settings.validate_production()
     if settings.ADMIN_PASSWORD_HASH:
         async with async_session_factory() as s:
-            res = await s.execute(select(models.User).where(models.User.username == settings.ADMIN_EMAIL))
-            u = res.scalar_one_or_none()
-            if u is None:
-                s.add(models.User(username=settings.ADMIN_EMAIL, display_name="Admin",
-                                  role="admin", is_active=True, password_hash=settings.ADMIN_PASSWORD_HASH))
-                await s.commit()
-                log.info("admin user seeded: %s", settings.ADMIN_EMAIL)
-            elif u.password_hash != settings.ADMIN_PASSWORD_HASH:
-                u.password_hash = settings.ADMIN_PASSWORD_HASH
-                await s.commit()
+            await _sync_admin_password(s, settings.ADMIN_PASSWORD_HASH)
     # Telegram Application singleton: build+initialize+start ONCE (for webhook)
     _tg = None
     if settings.TELEGRAM_BOT_TOKEN:
@@ -98,6 +126,7 @@ app.add_middleware(
 from observability.auth import (
     create_session_token,
     get_current_user,
+    hash_password,
     rate_limiter,
     require_role,
     verify_password,
@@ -201,6 +230,47 @@ async def logout():
     resp = JSONResponse({"ok": True})
     resp.delete_cookie("lumi_session", path="/")
     return resp
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/api/v1/auth/change-password")
+async def change_password(req: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+    """Change the signed-in user's own password (web UI · Settings)."""
+    if len(req.new_password) < 8:
+        raise HTTPException(400, "new password must be at least 8 characters")
+    if len(req.new_password) > 256:
+        raise HTTPException(400, "new password must be at most 256 characters")
+    if req.new_password == req.current_password:
+        raise HTTPException(400, "new password must differ from the current one")
+    uid = str(user.get("user_id") or "")
+    if not await rate_limiter.check(f"rl:pwchange:{uid}", 12, 3600):
+        raise HTTPException(429, "rate limit exceeded")
+    try:
+        user_key = uuid.UUID(uid)
+    except (TypeError, ValueError):
+        raise HTTPException(401, "invalid session") from None
+    async with async_session_factory() as s:
+        u = await s.get(models.User, user_key)
+        if u is None or not u.is_active or not verify_password(req.current_password, u.password_hash):
+            raise HTTPException(401, "current password is not correct")
+        u.password_hash = hash_password(req.new_password)
+        actor, actor_id = _audit_actor(user)
+        s.add(
+            models.AuditEvent(
+                actor=actor,
+                actor_user_id=actor_id,
+                action="auth.password_changed",
+                resource_type="user",
+                resource_id=str(u.id),
+                detail={"source": "web"},
+            )
+        )
+        await s.commit()
+    return {"ok": True}
 
 
 @app.get("/api/v1/auth/status")
