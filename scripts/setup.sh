@@ -90,7 +90,7 @@ print(f'pbkdf2_sha256\$240000\${salt.hex()}\${dk.hex()}')
 get_env_val() {
   local key="$1"
   if [ -f .env ]; then
-    grep -E "^${key}=" .env 2>/dev/null | tail -n1 | cut -d= -f2- | sed 's/ #.*//' | tr -d '\r' | xargs 2>/dev/null || true
+    grep -E "^${key}=" .env 2>/dev/null | tail -n1 | cut -d= -f2- | sed 's/ #.*//' | tr -d '\r' | sed 's/[$][$]/$/g' | xargs 2>/dev/null || true
   fi
 }
 
@@ -102,8 +102,9 @@ import pathlib, sys, re
 k, v = sys.argv[1], sys.argv[2]
 p = pathlib.Path(".env")
 t = p.read_text() if p.exists() else ""
-# escape $ for regex replacement? we build literal line
-new_line = f"{k}={v}"
+# escape $ for docker-compose interpolation: ${KEY} must deliver the literal
+# value (a raw $N would be eaten by variable substitution), so write $$
+new_line = f"{k}={v.replace('$', '$$')}"
 if re.search(rf'^{re.escape(k)}=.*$', t, flags=re.MULTILINE):
     t = re.sub(rf'^{re.escape(k)}=.*$', new_line, t, flags=re.MULTILINE)
 else:
