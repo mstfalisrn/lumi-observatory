@@ -44,7 +44,7 @@ On top of that runtime it ships a **market agent for the FLOP / technocore.chat 
 - **Trust Center UI** — Tier distribution (SAFE / WATCH / RISKY / DANGEROUS), live monitoring and alert state, capability manifest browser, and evaluation history with remote message previews explicitly labeled *untrusted*.
 - **Live SSE stream** — `GET /api/v1/events/stream` (`text/event-stream`) with `Last-Event-ID` / `global_seq` cursor, auto-reconnect, and DB-backed global ordering.
 - **Web UI** — Runs, context inspector, approvals, settings, and onboarding wizard (Tailwind 4 + shadcn/ui, light/dark tokens, SSE pulse).
-- **Hardened defaults** — API/worker/scheduler/migrate/logs run unprivileged with a read-only root filesystem, `cap_drop: ALL` and `no-new-privileges` (the nginx gateway master is the documented exception); secret scanning runs on the tree and the full history in CI. Not a penetration-test guarantee — see [SECURITY.md](./SECURITY.md).
+- **Hardened defaults** — API/worker/scheduler/migrate/logs run unprivileged with a read-only root filesystem, `cap_drop: ALL` and `no-new-privileges` (the Caddy gateway master is the documented exception); secret scanning runs on the tree and the full history in CI. Not a penetration-test guarantee — see [SECURITY.md](./SECURITY.md).
 
 ---
 
@@ -113,7 +113,7 @@ Each layer can only tighten the decision — none of them can widen it. Every of
 | `lumi-postgres` | PostgreSQL 16 + pgvector — durable state, vectors, append-only events | internal |
 | `lumi-redis` | Redis 7 — Streams queue/DLQ, coordination, cursors | internal |
 
-`lumi-api`, `lumi-worker`, `lumi-scheduler`, `lumi-migrate` and `lumi-logs` run as UID 10001 with a read-only root filesystem, `cap_drop: ALL` and `no-new-privileges`. The nginx gateway terminates on `127.0.0.1:${GATEWAY_PORT:-3525}` (its master process runs as root inside the container — documented exception); PostgreSQL is published on loopback `127.0.0.1:${POSTGRES_HOST_PORT:-5433}` and the logs dashboard on `127.0.0.1:${LOGS_PORT_HOST:-3590}`. All host bindings are loopback-only.
+`lumi-api`, `lumi-worker`, `lumi-scheduler`, `lumi-migrate` and `lumi-logs` run as UID 10001 with a read-only root filesystem, `cap_drop: ALL` and `no-new-privileges`. The Caddy gateway terminates on `127.0.0.1:${GATEWAY_PORT:-3525}` (it runs as root inside the container — documented exception); PostgreSQL is published on loopback `127.0.0.1:${POSTGRES_HOST_PORT:-5433}` and the logs dashboard on `127.0.0.1:${LOGS_PORT_HOST:-3590}`. All host bindings are loopback-only.
 
 Optional host loops (systemd units in `infra/` or plain `python apps/earn/<loop>.py`):
 
@@ -305,7 +305,7 @@ Webhook path is opaque: `/webhooks/telegram/<opaque>` — never logged.
 ```bash
 # Health
 curl -s http://localhost:3525/health/live  | jq  # liveness
-curl -s http://localhost:3525/health/ready | jq  # readiness (DB + deps)
+curl -s http://localhost:3525/health/ready | jq  # readiness (DB connectivity)
 
 # Logs
 docker compose logs -f
@@ -451,7 +451,7 @@ curl -s http://localhost:3525/health/ready
 - **Policy + approvals** — `READ_ONLY` auto; `SAFE_WRITE` audited; `PUBLIC_WRITE`/`PRIVILEGED` require human approval (single-use, expiry-bound, HMAC over canonical action hash); `DESTRUCTIVE` is denied.
 - **Identity & key handling** — The agent's Ed25519 key is generated locally, stored at `./secrets/did.ed25519` (0600, gitignored, outside the repo tree's tracked files) and bind-mounted read-only into containers; only the DID and signatures ever leave the machine. The repository contains no keys, DIDs, or tokens — `secret-scan.sh` enforces it.
 - **Redaction** — Tokens, `Authorization` headers, JWTs, and env secrets are masked before reaching the model or memory.
-- **Container hardening** — Non-root user, read-only rootfs, `no-new-privileges`, `cap_drop: ALL`; only `127.0.0.1:3525` is host-exposed.
+- **Container hardening** — Non-root user, read-only rootfs, `no-new-privileges`, `cap_drop: ALL`; all host-exposed ports are loopback-only (`127.0.0.1`): gateway 3525, PostgreSQL 5433, logs 3590.
 - **Telegram** — Numeric allowlist only; group mode off by default; webhook secret verified; `update_id` deduplication.
 
 Full details: [SECURITY.md](./SECURITY.md)

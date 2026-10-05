@@ -17,7 +17,7 @@ the exception is written down here.
 |---|---|---|---|---|
 | `lumi-api`, `lumi-worker`, `lumi-scheduler`, `lumi-migrate` | 10001 | read-only (`tmpfs /tmp`) | `cap_drop: ALL` + `no-new-privileges` | none |
 | `lumi-logs` | 10001 (image-level) | read-only (`tmpfs /tmp`) | `cap_drop: ALL` + `no-new-privileges` | loopback `127.0.0.1:3590` |
-| `lumi-gateway` (nginx) | **root inside the container** (documented exception — the master binds :80 and writes its pid/cache) | writable | `cap_drop: ALL` + `no-new-privileges` | loopback `127.0.0.1:3525` |
+| `lumi-gateway` (Caddy) | **root inside the container** (documented exception — binds :80 and writes its data/config dirs) | writable | `cap_drop: ALL` + `no-new-privileges` | loopback `127.0.0.1:3525` |
 | `lumi-postgres` | official image default | writable (data volume) | image defaults | loopback `127.0.0.1:5433` |
 | `lumi-redis` | official image default | writable | image defaults | none |
 

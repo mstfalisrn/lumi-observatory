@@ -1,6 +1,6 @@
 # LUMI Agentic Observatory — Docker Compose (pinned, standalone)
-# Only lumi-gateway binds to the host on 127.0.0.1:${GATEWAY_PORT:-3525}.
-# PostgreSQL/Redis are not exposed to the host (internal network). Web UI is baked into the API image (single origin).
+# Host bindings are loopback-only (127.0.0.1): gateway ${GATEWAY_PORT:-3525}, PostgreSQL ${POSTGRES_HOST_PORT:-5433}, logs ${LOGS_PORT_HOST:-3590}.
+# Redis stays internal (no host port). Web UI is baked into the API image (single origin).
 name: lumi-observatory
 
 services:

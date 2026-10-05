@@ -61,7 +61,7 @@ Rail-aware earnings: the `lumi-logs` dashboard counts `flop-htlc` as the headlin
 `paper` separately as simulation.
 
 ## Secrets
-- Rotate or generate: `./scripts/configure-secrets.sh --gen` or interactive mode, then `docker compose up -d`.
+- Rotate or generate: `./scripts/setup.sh --reconfigure` (interactive; `--yes` auto-generates `CHANGE_ME` placeholders non-interactively), then `docker compose up -d`.
 - Never print secrets to screen, logs, or commits.
 
 ## Access
