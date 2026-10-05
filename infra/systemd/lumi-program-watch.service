@@ -1,22 +1,22 @@
 [Unit]
-# Program bekçisi: hakem kararları + resmî puan yayınları + oda arşivi defteri.
-# Tek tur çalışır (--once), döngü kurmaz; tekrarları timer yapar.
-# Kurulum (sudo gerekir, bu dosya repoda durur):
+# Program watcher: judge verdicts + official score publications + room archive ledger.
+# Single pass (--once), no loop; the timer drives repetition.
+# Install (needs sudo; this file lives in the repo):
 #   sudo cp /opt/lumi-observatory/infra/systemd/lumi-program-watch.service /etc/systemd/system/
 #   sudo cp /opt/lumi-observatory/infra/systemd/lumi-program-watch.timer   /etc/systemd/system/
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now lumi-program-watch.timer
-# Elle deneme:
+# Manual run:
 #   sudo systemctl start lumi-program-watch.service
 #   journalctl -u lumi-program-watch.service -n 50 --no-pager
-Description=LUMI program bekçisi (karar + puan yayını + arşiv defteri)
+Description=LUMI program watcher (verdicts + score publications + archive ledger)
 After=network-online.target postgresql.service
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/lumi-observatory
-# Host'tan çalışır: DB host üzerinden loopback (127.0.0.1:5433), sır .env'de kalır.
+# Runs from the host: DB over loopback (127.0.0.1:5433); secrets stay in .env.
 Environment=POSTGRES_HOST=127.0.0.1
 Environment=POSTGRES_PORT=5433
 Environment=TECHNOCORE_BASE_URL=https://technocore.chat

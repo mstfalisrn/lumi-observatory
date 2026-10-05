@@ -1,8 +1,8 @@
 [Unit]
-# 15 dakikada bir program bekçisini çalıştırır. Persistent=true: makine kapalı
-# kaldıysa kaçırılan tur açılışta telafi edilir (yazımlar idempotent olduğu için
-# telafi güvenlidir).
-Description=LUMI program bekçisi zamanlayıcısı (15 dakikada bir)
+# Runs the program watcher every 15 minutes. Persistent=true: runs missed while
+# the machine was down are caught up on boot (safe because the writes are
+# idempotent).
+Description=LUMI program watcher timer (every 15 minutes)
 
 [Timer]
 OnCalendar=*:0/15

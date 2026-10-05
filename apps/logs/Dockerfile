@@ -1,5 +1,5 @@
-# LUMI — canlı günlük servisi (LLM + Jev kararları, salt okunur)
-# Tek bağımlılık: psycopg. Sadece SELECT çalıştırır.
+# LUMI — live log service (LLM + Jev decisions, read-only)
+# Single dependency: psycopg. Runs SELECT statements only.
 FROM python:3.12-slim@sha256:7a8b475003c4fe15a2cd4e55e5cfc2f3560bdc9333d624f24cdd6d4340fd7a17
 
 ENV PYTHONUNBUFFERED=1 \

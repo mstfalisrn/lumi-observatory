@@ -1,14 +1,15 @@
 [Unit]
-# Tüm odaların export halkasını yerel arşive ekler (append + seq tekilleştirme).
-# 6 saatte bir çalışır; bekçiden (15 dk) ayrıdır çünkü 8 odanın tamamı ~40 MB.
-# Kurulum (sudo gerekir, bu dosya repoda durur):
+# Appends every room's export ring to the local archive (append + seq dedupe).
+# Runs every 6 hours; kept separate from the 15-minute watcher because all 8
+# rooms total ~40 MB.
+# Install (needs sudo; this file lives in the repo):
 #   sudo cp /opt/lumi-observatory/infra/systemd/lumi-archive-rooms.service /etc/systemd/system/
 #   sudo cp /opt/lumi-observatory/infra/systemd/lumi-archive-rooms.timer   /etc/systemd/system/
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now lumi-archive-rooms.timer
-# Elle deneme:
+# Manual run:
 #   sudo systemctl start lumi-archive-rooms.service
-Description=LUMI oda arşivleyici (technocore export halkası)
+Description=LUMI room archiver (technocore export ring)
 After=network-online.target
 Wants=network-online.target
 
