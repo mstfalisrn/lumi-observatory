@@ -8,7 +8,7 @@
 #   3) payment          — did a lock/payment frame arrive (earnings)
 set -euo pipefail
 cd "$(dirname "$0")/.."
-PSQL=(docker compose exec -T lumi-postgres psql -U lumi -d lumi -tA)
+PSQL=(docker compose exec -T lumi-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA "$@"' psql)
 q() { "${PSQL[@]}" -c "$1"; }
 
 echo "════ tclk EARNINGS TRACKING · $(date -u '+%Y-%m-%d %H:%M UTC') ════"

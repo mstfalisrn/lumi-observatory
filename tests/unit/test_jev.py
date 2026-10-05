@@ -327,7 +327,7 @@ async def test_policy_jev_escalates_out_of_scope(monkeypatch):
         "providerMetadata": {"gateway": {"cost": "0.00001"}},
     }
     _install_client(monkeypatch, make_client(ok_handler(payload)))
-    decision = await PolicyEngine().decide_async("technocore_read", {"path": "/opt/.env"})
+    decision = await PolicyEngine().decide_async("technocore_read", {"path": "/srv/app/.env"})
     assert decision.decision == "REQUIRE_APPROVAL"
     assert decision.reason.startswith("jev:out-of-scope")
 
