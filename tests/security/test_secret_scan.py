@@ -133,3 +133,30 @@ def test_ignored_env_is_skipped_in_linked_worktree():
         code, out = run_scan(linked)
         assert code == 0, out
         assert "clean" in out.lower()
+
+
+def test_placeholder_first_does_not_hide_later_real_match():
+    """v3 skipped the rest of the file when the first pattern match sat on a
+    placeholder line; v4 evaluates every matching line."""
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td)
+        token = "123456789:" + ("A" * 35)
+        (p / "app.py").write_text(
+            "# TELEGRAM_BOT_TOKEN=CHANGE_ME (example)\n"
+            f"TELEGRAM_BOT_TOKEN={token}\n"
+        )
+        code, out = run_scan(p)
+        assert code == 1, out
+        assert "REAL SECRET" in out
+
+
+def test_placeholder_does_not_mask_real_value_on_the_same_line():
+    """v3 filtered per line; v4 filters per token."""
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td)
+        token = "123456789:" + ("B" * 35)
+        (p / ".env.example").write_text("POSTGRES_PASSWORD=CHANGE_ME\n")
+        (p / "dump.txt").write_text(f"old value: {token}  # CHANGE_ME was the template\n")
+        code, out = run_scan(p)
+        assert code == 1, out
+        assert "REAL SECRET" in out

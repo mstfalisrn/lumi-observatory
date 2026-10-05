@@ -2,6 +2,10 @@
 # Secret / env
 .env
 **/.env
+.env.bak*
+**/.env.bak*
+**/.env.local
+**/.env.*.bak
 *secrets*
 app.env
 # (legacy absolute path removed — use secrets/app.env or $SECRETS_FILE)

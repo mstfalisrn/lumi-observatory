@@ -83,6 +83,14 @@ jobs:
       - uses: actions/checkout@v7
       - name: Run secret scan
         run: ./scripts/secret-scan.sh .
+  secret-scan-history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # full history: the scan walks every ref
+      - name: Run history-aware secret scan
+        run: ./scripts/secret-scan.sh . --history
   compose-config:
     runs-on: ubuntu-latest
     steps:
