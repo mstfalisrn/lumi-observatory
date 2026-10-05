@@ -11,34 +11,40 @@
 </p>
 <p align="center"><em>LUMI — the curious owl explorer. Every agent step observed, verified, and auditable.</em></p>
 
-> **Observable, policy-gated agentic runtime over Telegram + Web UI** -- verifiable context, auditable tool execution, and human-in-the-loop approvals.
+> **Observable, policy-gated agentic runtime over Telegram + Web UI** — verifiable context, auditable tool execution, human-in-the-loop approvals, and a self-registering FLOP testnet worker.
 
 LUMI is a self-hosted agentic runtime for observable, policy-controlled automation. It runs as a Docker Compose stack with a single public entry point, durable queues, and a full audit trail from task ingestion to verified report.
+
+On top of that runtime it ships a **market agent for the FLOP / technocore.chat testnet**: the first thing a fresh install does is register itself on the network (Ed25519 `did:key`, public identity note, faucet claim), then it can work funded, judged work — every offer audited, every gate fail-closed, every deal worked to delivery, reveal, and receipt. Earnings are counted **per rail**, so simulated (`paper`) deals can never read as money.
 
 ---
 
 ## Highlights
 
 - **Why LUMI:** Every agent step is assembled from auditable context, checked against policy, executed through declared tools, and verified against expected evidence before a report is persisted.
-- **Single-command local run:** `quickstart.sh` generates secrets, runs migrations, and starts the stack idempotently.
-- **Single origin:** The Web UI is served by the API behind a single gateway -- one host bind, no CORS sprawl.
+- **Self-registering identity:** `./scripts/setup.sh` generates the agent's Ed25519 key, publishes its `did:key` identity note on technocore.chat, and claims the testnet faucet — no key material ever lives in the repository.
+- **Single-command local run:** the setup wizard generates secrets, builds the stack, and verifies with secret-scan; `quickstart.sh` is the non-interactive alias.
+- **Single origin:** The Web UI is served by the API behind a single gateway — one host bind, no CORS sprawl.
+- **Earn, visibly:** the tclk market agent works judged programs end-to-end and the dashboard separates real rails (`flop-htlc`) from simulation (`paper`).
 
 ---
 
 ## Features
 
-- **Policy-gated execution** -- Every tool call is classified as `ALLOW`, `REQUIRE_APPROVAL`, or `DENY`. Writes that leave the system (e.g. public posts) require explicit human approval bound to action hash, user, and expiry.
-- **Queue / worker with hardening** -- Redis Streams-backed queue with atomic claim, heartbeat/lease, exponential backoff, retry budget, and a dead-letter queue for poisoned runs.
-- **Durable Telegram inbox** -- Webhook receiver with opaque path, `X-Telegram-Bot-Api-Secret-Token` verification, and idempotent `update_id` handling.
-- **Memory with pgvector** -- Candidate -> approved/active lifecycle with embedding retrieval (`pgvector`) at task start; superseded/expired archival keeps history intact.
-- **Bounded capabilities (skills)** -- Source-controlled JSON manifests (`skills/*.json`) declare which tools a capability may call and which scope fields are required. An operator picks a skill and an explicit target (approved HTTPS URL, `owner/repository`, or configured room) before a run; the planner rejects out-of-scope targets before execution, and unknown tools never reach the registry.
-- **Proactive sources** -- Opt-in monitored sources (`http_json`, `github_repo`, `internal_health`, `technocore_room`) with content-hash change detection, exponential backoff on errors, bounded metadata-only storage, and an append-only observation trail. Changed content may become a memory *candidate* -- never an auto-activated record.
-- **tclk market agent (value rails only)** -- Layered, fail-closed gating of the tclk/1 offer market: deterministic audit, Jev veto, operator risk ceiling, brief resolution, lane rate limits, concurrency caps. Only escrow-bearing rails are worked (`flop-htlc` by default; `paper` simulation is skipped at the gate). A deterministic solver answers the exact-answer families (tip, protocol transcript fold, validation, math, `/kv` note, HTTP probe, docs) before the model is ever asked; accepted deals run end to end to reveal and receipt, and an optional judged-deal worker works the same loop against a judged-deal feed.
-- **Report-only digests + opt-in risk alerts** -- Deterministic local digest reports aggregate stored changes and risk metadata without any external call. External digest delivery and RISKY/DANGEROUS Telegram alerts are each behind their own explicit flag, off by default.
-- **Trust Center UI** -- Tier distribution (SAFE / WATCH / RISKY / DANGEROUS), live monitoring and alert state, capability manifest browser, and evaluation history with remote message previews explicitly labeled *untrusted*.
-- **Live SSE stream** -- `GET /api/v1/events/stream` (`text/event-stream`) with `Last-Event-ID` / `global_seq` cursor, auto-reconnect, and DB-backed global ordering.
-- **Web UI** -- Runs, context inspector, approvals, settings, and onboarding wizard (Tailwind 4 + shadcn/ui, light/dark tokens, SSE pulse).
-- **Production-ready hygiene** -- Non-root, read-only containers, `cap_drop: ALL`, isolated networks, secret scanning, and CI gates.
+- **Policy-gated execution** — Every tool call is classified as `ALLOW`, `REQUIRE_APPROVAL`, or `DENY`. Writes that leave the system (e.g. public posts) require explicit human approval bound to action hash, user, and expiry.
+- **Queue / worker with hardening** — Redis Streams-backed queue with atomic claim, heartbeat/lease, exponential backoff, retry budget, and a dead-letter queue for poisoned runs.
+- **Durable Telegram inbox** — Webhook receiver with opaque path, `X-Telegram-Bot-Api-Secret-Token` verification, and idempotent `update_id` handling.
+- **Memory with pgvector** — Candidate → approved/active lifecycle with embedding retrieval (`pgvector`) at task start; superseded/expired archival keeps history intact.
+- **Bounded capabilities (skills)** — Source-controlled JSON manifests (`skills/*.json`) declare which tools a capability may call and which scope fields are required. An operator picks a skill and an explicit target (approved HTTPS URL, `owner/repository`, or configured room) before a run; the planner rejects out-of-scope targets before execution, and unknown tools never reach the registry.
+- **FLOP identity & registration** — `apps/tools/flop_register.py` (wired into wizard Step 5) generates the Ed25519 key at `./secrets/did.ed25519` (0600, never committed), derives the `did:key`, publishes the identity note at `/kv/did-<shard>/<key>` on technocore.chat, claims the faucet drip, and verifies both by reading them back. `--check` reports status read-only; `--reconfigure` re-runs any time.
+- **tclk market agent (layered, fail-closed)** — Deterministic audit, Jev veto, operator risk ceiling, brief resolution, lane rate limits, concurrency caps and rail filtering. The value-rail profile is `flop-htlc`; the judged-program profile adds `paper` behind an amount cap so funded judged work can be served while five-hundred-thousand-denomination bot floods stay out. A deterministic solver answers the exact-answer families (tip, protocol transcript fold, validation, math, `/kv` note, HTTP probe, documentation) before the model is ever asked; accepted deals run end to end to reveal and receipt, and a dedicated judged-deal worker (`apps/earn/blockrewards.py`) works the same loop against a judged-deal feed.
+- **Earning loops** — `apps/earn/trader.py` (flopmarket participation + coherence checks + news watch), `apps/earn/kibble.py` (kibble JOB → CLAIM → RESULT loop), `apps/earn/close1.py` (close-1 position keeper), each runnable standalone or under systemd.
+- **Rail-aware earnings dashboard** — `apps/logs` counts locked value **per rail**: `flop-htlc` is the real counter, `paper` gets its own "worthless (sim)" counter, and `/saglik` exposes the same split as JSON.
+- **Report-only digests + opt-in risk alerts** — Deterministic local digest reports aggregate stored changes and risk metadata without any external call. External digest delivery and RISKY/DANGEROUS Telegram alerts are each behind their own explicit flag, off by default.
+- **Trust Center UI** — Tier distribution (SAFE / WATCH / RISKY / DANGEROUS), live monitoring and alert state, capability manifest browser, and evaluation history with remote message previews explicitly labeled *untrusted*.
+- **Live SSE stream** — `GET /api/v1/events/stream` (`text/event-stream`) with `Last-Event-ID` / `global_seq` cursor, auto-reconnect, and DB-backed global ordering.
+- **Web UI** — Runs, context inspector, approvals, settings, and onboarding wizard (Tailwind 4 + shadcn/ui, light/dark tokens, SSE pulse).
+- **Production-ready hygiene** — Non-root, read-only containers, `cap_drop: ALL`, isolated networks, secret scanning, and CI gates.
 
 ---
 
@@ -59,6 +65,12 @@ LUMI is a self-hosted agentic runtime for observable, policy-controlled automati
                           (queue,              (run lifecycle,                (22 tables,
                            DLQ,                 budgets, circuit-breaker,      append-only events,
                            cursors)             deferred delivery)             memory, approvals)
+                                    |
+                        Technocore / FLOP <--> tclk market agent (scheduler)
+                          (tclk/1 frames)      +-> audit -> Jev -> solver -> deliver -> reveal
+                                    |
+                        Earning loops (host or container)
+                          trader.py | kibble.py | close1.py | blockrewards.py
 ```
 
 **Run lifecycle:**
@@ -71,21 +83,46 @@ QUEUED -> CONTEXT_BUILDING -> PLANNING -> POLICY_CHECK
 
 Context is assembled in 7 layers (`system_policy`, `task_goal`, `conversation_window`, `episodic_memory`, `semantic_memory`, `procedural_memory`, `tool_schemas`) with token budgets and per-segment audit metadata. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full model.
 
+**Market agent decision layers (every offer, accepted or not):**
+
+```
+offer -> (1) deterministic audit      tclk.py: rail / amount / expiry / brief / risk
+      -> (2) Jev veto                 TypeSafe typed decision, fail-closed
+      -> (3) operator risk ceiling    TCLK_AGENT_MIN_TIER (safe < watch < risky < dangerous)
+      -> (4) brief resolution         TCLK_ACCEPT_REQUIRE_BRIEF=true (no brief, no accept)
+      -> (5) lane + hourly budget     TCLK_AGENT_ACCEPT_PER_HOUR + validation reserve
+      -> (6) concurrency cap          TCLK_AGENT_MAX_ACTIVE with TTL
+      -> (7) uniqueness               (author|nonce) — one accept per offer, ever
+      -> accept -> heartbeat -> exact answer -> deliver -> lock -> reveal -> receipt
+```
+
+Each layer can only tighten the decision — none of them can widen it. Every offer is persisted to `tclk_offer_audits` with its checks and outcome.
+
 ---
 
 ## Services
 
 | Service | Role | External port |
 |---|---|---|
-| `lumi-gateway` | Caddy reverse proxy -- single host entry point for UI + API | `127.0.0.1:3525` |
-| `lumi-api` | FastAPI -- REST API, SSE stream, Telegram webhook, embedded UI static | internal |
-| `lumi-worker` | Agent execution -- dequeues runs, drives the coordinator loop | internal |
-| `lumi-scheduler` | Scheduling -- periodic reads, deferred delivery (`not_before`), maintenance | internal |
-| `lumi-migrate` | One-shot Alembic migration -- runs once, API/worker/scheduler depend on it | internal |
-| `lumi-postgres` | PostgreSQL 16 + pgvector -- durable state, vectors, append-only events | internal |
-| `lumi-redis` | Redis 7 -- Streams queue/DLQ, coordination, cursors | internal |
+| `lumi-gateway` | Caddy reverse proxy — single host entry point for UI + API | `127.0.0.1:3525` |
+| `lumi-api` | FastAPI — REST API, SSE stream, Telegram webhook, embedded UI static | internal |
+| `lumi-worker` | Agent execution — dequeues runs, drives the coordinator loop | internal |
+| `lumi-scheduler` | Scheduling — periodic reads, deferred delivery, tclk market agent | internal |
+| `lumi-logs` | Live earnings/logs dashboard (rail-aware) + `/saglik` JSON | internal |
+| `lumi-migrate` | One-shot Alembic migration — runs once, API/worker/scheduler depend on it | internal |
+| `lumi-postgres` | PostgreSQL 16 + pgvector — durable state, vectors, append-only events | internal |
+| `lumi-redis` | Redis 7 — Streams queue/DLQ, coordination, cursors | internal |
 
 All runtime containers run as non-root, read-only filesystem, `cap_drop: ALL`, `no-new-privileges`. Only `lumi-gateway` is bound to the host (`127.0.0.1:${GATEWAY_PORT:-3525}` — override with `GATEWAY_PORT` env).
+
+Optional host loops (systemd units in `infra/` or plain `python apps/earn/<loop>.py`):
+
+| Loop | What it does |
+|---|---|
+| `apps/earn/trader.py` | flopmarket participation, coherence checks, news watch (`--post` to write) |
+| `apps/earn/kibble.py` | Kibble JOB → CLAIM → RESULT loop |
+| `apps/earn/close1.py` | close-1 position keeper |
+| `apps/earn/blockrewards.py` | Judged-deal worker for the blockrewards feed |
 
 ---
 
@@ -101,14 +138,15 @@ Step-by-step in your terminal — you choose every value. Nothing is auto-filled
 # 1) Clone
 git clone https://github.com/mstfalisrn/lumi-observatory.git && cd lumi-observatory
 
-# 2) Run the wizard — walks you through Admin -> LLM -> Telegram -> Security
+# 2) Run the wizard — 6 steps:
+#    Step 1/6  Admin account          (Web UI login)
+#    Step 2/6  LLM provider           (18 presets incl. OpenCode Free/Go/Zen + Custom)
+#    Step 3/6  Jev decision layer     (optional — TypeSafe API key)
+#    Step 4/6  Telegram               (optional — bot token + allowed user IDs)
+#    Step 5/6  FLOP identity          (registers on technocore.chat: Ed25519 key,
+#                                      DID note, faucet drip — the key stays local)
+#    Step 6/6  Security secrets       (auto-generated if still CHANGE_ME)
 ./scripts/setup.sh
-# The wizard: shows a checkbox menu (whiptail radiolist — SPACE to select, arrows to move).
-# Pick LLM from 18 presets (Mock / OpenAI / OpenRouter / DeepSeek / Grok / Gemini / Qwen /
-#  MiniMax / Kimi / Fireworks / HuggingFace / Ollama / LM Studio / vLLM /
-#  OpenCode Free (keyless) / OpenCode Go / OpenCode Zen / Custom)
-# and prompts for the matching API key/URL/model, asks for Telegram token (optional),
-# auto-generates JWT/DB secrets if still CHANGE_ME, shows a masked summary, then starts the stack.
 # -> http://localhost:3525
 
 # Fix a value later — re-run the wizard (shows current values as defaults)
@@ -127,17 +165,19 @@ git clone https://github.com/mstfalisrn/lumi-observatory.git && cd lumi-observat
 cp .env.example .env          # optional — quickstart.sh creates it if missing
 ./scripts/quickstart.sh       # legacy alias; same as: ./scripts/setup.sh --yes
 # Alternative: docker compose up -d --build
+# (non-interactive mode skips live FLOP registration — run ./scripts/setup.sh --reconfigure later)
 ```
 
 Open **http://localhost:3525**
 
 - First login: `ADMIN_EMAIL` (default `admin@example.com`) + password you set in the wizard (Step 1). If you used `quickstart.sh`/`--yes`, it generated a random password and printed it once — save it.
 - Verify: `curl -s http://localhost:3525/health/ready | jq` should return `{"status":"ready"}`.
+- Registration check: `docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler python apps/tools/flop_register.py --check --key-path /secrets/did.ed25519`
 - Logs: `docker compose logs -f`
 - Fix: `./scripts/setup.sh --reconfigure` or `nano .env && docker compose up -d --build`
-- Secret hygiene: `./scripts/secret-scan.sh .` must be clean -- real secrets live outside the repo.
+- Secret hygiene: `./scripts/secret-scan.sh .` must be clean — real secrets live outside the repo.
 
-All terminal commands are documented in [docs/INSTALL.md](./docs/INSTALL.md) (Prerequisites, Quick Start, First Login, LLM matrix, Telegram, Troubleshooting).
+All terminal commands are documented in [docs/INSTALL.md](./docs/INSTALL.md) (Prerequisites, Quick Start, FLOP registration, First Login, LLM matrix, Telegram, Troubleshooting).
 
 ---
 
@@ -145,9 +185,9 @@ All terminal commands are documented in [docs/INSTALL.md](./docs/INSTALL.md) (Pr
 
 Full reference: [docs/CONFIGURATION.md](./docs/CONFIGURATION.md)
 
-Secrets are placeholders in `.env.example` (`CHANGE_ME`). Copy to `.env` and fill only what you need. Never commit `.env`.
+Secrets are placeholders in `.env.example` (`CHANGE_ME`). Copy to `.env` and fill only what you need. Never commit `.env` — and never commit the agent key at `./secrets/did.ed25519`.
 
-### LLM providers -- one env set, 18 presets (OpenAI-compatible) -- full provider coverage
+### LLM providers — one env set, 18 presets (OpenAI-compatible) — full provider coverage
 
 LUMI uses a single `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` set that speaks the OpenAI Chat Completions API. Every provider below is a preset for `openai_compatible` (or `mock` for free local dev). The wizard (`./scripts/setup.sh`) offers 18 presets (incl. OpenCode Free/Go/Zen); `Custom` covers any other OpenAI-compatible endpoint.
 
@@ -171,39 +211,81 @@ LUMI uses a single `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY`
 | **LM Studio (local)** | `openai_compatible` | `http://host.docker.internal:1234/v1` | `local-model` | `lm-studio` |
 | **vLLM / SGLang (self-hosted)** | `openai_compatible` | `http://host.docker.internal:8000/v1` | `your-model` | `CHANGE_ME` or key |
 
-> **Full coverage:** The table above shows the most-used presets. LUMI's `openai_compatible` provider works with **any** OpenAI-compatible endpoint, so all 40+ providers are supported -- see [docs/CONFIGURATION.md](./docs/CONFIGURATION.md) for the complete provider mapping (Nous Portal, Claude Max OAuth, Grok OAuth, Bedrock, Vertex, Azure, OpenCode, Ramp, Novita, Arcee, Nebius, GMI, Tencent, StepFun, NVIDIA Build, and more).
+> **Full coverage:** The table above shows the most-used presets. LUMI's `openai_compatible` provider works with **any** OpenAI-compatible endpoint, so all 40+ providers are supported — see [docs/CONFIGURATION.md](./docs/CONFIGURATION.md) for the complete provider mapping (Nous Portal, Claude Max OAuth, Grok OAuth, Bedrock, Vertex, Azure, OpenCode, Ramp, Novita, Arcee, Nebius, GMI, Tencent, StepFun, NVIDIA Build, and more).
 
 ```bash
-# .env -- OpenAI example
+# .env — OpenAI example
 LLM_PROVIDER=openai_compatible
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4o-mini
 LLM_API_KEY=sk-...
 
-# .env -- DeepSeek example
-LLM_PROVIDER=openai_compatible
-LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_MODEL=deepseek-chat
-LLM_API_KEY=sk-...
-
-# .env -- OpenRouter (Anthropic via OpenRouter)
-LLM_PROVIDER=openai_compatible
-LLM_BASE_URL=https://openrouter.ai/api/v1
-LLM_MODEL=anthropic/claude-3.5-sonnet
-LLM_API_KEY=sk-or-...
-
-# .env -- Ollama local
-LLM_PROVIDER=openai_compatible
-LLM_BASE_URL=http://host.docker.internal:11434/v1
-LLM_MODEL=llama3.1
-LLM_API_KEY=ollama
-
-# .env -- Mock (no key, full loop with fixtures)
+# .env — Mock (no key, full loop with fixtures)
 LLM_PROVIDER=mock
 LLM_API_KEY=CHANGE_ME
 ```
 
-Test the connection via `POST /api/v1/settings/llm/test` or the Web UI -> Settings -> LLM Test.
+Test the connection via `POST /api/v1/settings/llm/test` or the Web UI → Settings → LLM Test.
+
+### Jev decision layer (TypeSafe, optional)
+
+A cheap typed decision layer (~$0.00002, ~200 ms) that runs before the chat model: it can only veto, never widen. Served directly by TypeSafe (`POST {JEV_BASE_URL}{JEV_EVAL_PATH}` with `{"model","state","questions"}`); the Vercel AI Gateway proxy used to carry the same model as `typesafe-ai/jev` but its free tier now returns 403.
+
+```bash
+JEV_ENABLED=true
+JEV_API_KEY=...                      # TypeSafe key — wizard Step 3
+JEV_BASE_URL=https://api.typesafe.ai/v1
+JEV_MODEL=jev-latest
+JEV_TCLK_ENABLED=true                # gate market offers through Jev
+```
+
+### FLOP identity (technocore.chat)
+
+The wizard registers the agent; the pieces it writes:
+
+```bash
+TECHNOCORE_ENABLED=true
+TECHNOCORE_BASE_URL=https://technocore.chat
+TECHNOCORE_KEY_HOST_PATH=./secrets/did.ed25519   # bind-mounted read-only into containers
+LUMI_AGENT_DID=did:key:z6Mk...                   # public identity (no key material)
+LUMI_AGENT_NAME=LUMI                             # name published in the DID note
+```
+
+Manual registration / verification (also used by wizard Step 5):
+
+```bash
+# register (generates the key if missing, publishes the note, claims the drip)
+docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
+  python apps/tools/flop_register.py --key-path /secrets/did.ed25519 --name "LUMI"
+
+# read-only status: DID, note path, faucet history
+docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
+  python apps/tools/flop_register.py --check --key-path /secrets/did.ed25519
+```
+
+The private key never leaves `./secrets/did.ed25519` (0600, gitignored); only the DID and signatures are sent. The identity note is written to `/kv/did-<shard>/<key>` and the faucet claim to `/r/faucet`; both are verified by reading them back.
+
+### tclk market agent
+
+```bash
+TCLK_ENABLED=true
+TCLK_MONITOR_ROOMS=tclk-offers,d-blockrewards-feed
+TCLK_AGENT_ENABLED=true
+TCLK_AGENT_RAILS=flop-htlc,paper   # judged-program profile (see below)
+TCLK_AGENT_MAX_AMOUNT=10000        # amount cap — keeps the 500k bot floods out
+TCLK_AGENT_MIN_TIER=watch          # operator risk ceiling
+TCLK_ACCEPT_REQUIRE_BRIEF=true     # never accept what we cannot answer
+TCLK_AGENT_ACCEPT_PER_HOUR=60      # lane budget (+ TCLK_AGENT_VALIDATION_RESERVE)
+TCLK_AGENT_MAX_ACTIVE=24           # concurrency cap with TTL
+TCLK_AGENT_TASK_PATTERNS=math,verification,inference,documentation,attest,protocol,probe,census,tip,val,blockrewards,harness
+```
+
+Two profiles, same fail-closed gates:
+
+- **Value-rails-only** — `TCLK_AGENT_RAILS=flop-htlc` (the code default): only escrow-bearing rails are worked.
+- **Judged-program** — `TCLK_AGENT_RAILS=flop-htlc,paper` + an amount cap: the funded judged programs (blockrewards, harness, and the labelled task families) pay in FLOP on the paper rail until the escrow exists, so this profile serves them while the cap keeps five-hundred-thousand-denomination bot offers out.
+
+Every offer is audited whether it is accepted or not (`tclk_offer_audits`), and each gate can only tighten the decision. Accepted deals are worked to delivery, and the escrow is revealed and receipted as soon as the payer locks. The dashboard (`apps/logs`) counts earnings **per rail**, so simulated (`paper`) deals can never read as money. Full knob list: [docs/CONFIGURATION.md](./docs/CONFIGURATION.md).
 
 ### Telegram
 
@@ -211,9 +293,9 @@ Test the connection via `POST /api/v1/settings/llm/test` or the Web UI -> Settin
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | From @BotFather; leave empty to disable Telegram |
 | `TELEGRAM_ALLOWED_USER_IDS` | Comma-separated numeric user IDs; empty / `*` denies all |
-| `TELEGRAM_WEBHOOK_SECRET` | 64 hex chars -- verified as `X-Telegram-Bot-Api-Secret-Token` |
+| `TELEGRAM_WEBHOOK_SECRET` | 64 hex chars — verified as `X-Telegram-Bot-Api-Secret-Token` |
 
-Webhook path is opaque: `/webhooks/telegram/<opaque>` -- never logged.
+Webhook path is opaque: `/webhooks/telegram/<opaque>` — never logged.
 
 ---
 
@@ -246,20 +328,36 @@ See [OPERATIONS.md](./OPERATIONS.md) for systemd, runbook, and incident notes.
 
 ```bash
 git clone https://github.com/mstfalisrn/lumi-observatory.git && cd lumi-observatory
-./scripts/setup.sh            # interactive wizard: Admin -> LLM -> Telegram -> Security
+./scripts/setup.sh            # wizard: Admin -> LLM -> Jev -> Telegram -> FLOP -> Security
 open http://localhost:3525
 ```
 
 `mock` needs no API key, so the full agent loop works offline in under a minute. Swap to any OpenAI-compatible provider later with `./scripts/setup.sh --reconfigure`.
 
-### 2. Run a bounded observation task
+### 2. Register the agent on FLOP (first thing LUMI does)
+
+The wizard's Step 5 does this for you; run it standalone any time:
+
+```bash
+docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
+  python apps/tools/flop_register.py --key-path /secrets/did.ed25519 --name "LUMI"
+
+# DID=did:key:z6Mk...
+# KEY=/secrets/did.ed25519 (generated)
+# NOTE=published: /kv/did-<shard>/<key>
+# FAUCET=posted: claim posted — the drip lands within minutes
+```
+
+What it does, in order: generate the Ed25519 key (0600, outside the repo) → derive `did:key` → publish the identity note on technocore.chat → claim the devnet faucet drip → verify both by reading them back. Re-run `--check` to see the faucet balance and note status; `--force-note` re-publishes the note.
+
+### 3. Run a bounded observation task
 
 Give the agent an explicit, pre-approved target instead of a free-form web crawl:
 
 ```bash
 # HTTP/JSON source approved by CONNECTOR_ALLOWED_HOSTS
 curl -s -X POST http://localhost:3525/api/v1/tasks \
-  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ***" -H "Content-Type: application/json" \
   -d '{
     "title": "Check release feed",
     "prompt": "Fetch the release feed and report new entries with a quality summary.",
@@ -270,7 +368,7 @@ curl -s -X POST http://localhost:3525/api/v1/tasks \
 
 The planner fails closed on any URL outside `allowed_urls`; internal/loopback/metadata hosts are always rejected by the SSRF layer. Skills that only monitor scheduled streams (`risk-triage`, `system-health`) cannot be invoked as ad-hoc tasks.
 
-### 3. Monitor a source (opt-in)
+### 4. Monitor a source (opt-in)
 
 ```bash
 # 1) Turn on the master switch (optional: name hosts you approve)
@@ -279,39 +377,39 @@ CONNECTOR_ALLOWED_HOSTS=status.github.com,api.example.com
 
 # 2) Register a source (operator role)
 curl -s -X POST http://localhost:3525/api/v1/sources \
-  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ***" -H "Content-Type: application/json" \
   -d '{"name": "GH status", "source_type": "http_json",
        "config": {"url": "https://status.github.com/api/status.json", "ingest_mode": "metadata"},
        "is_enabled": true}'
 
 # 3) Manual scan (immediate change check) or let the scheduler scan each tick
 curl -s -X POST http://localhost:3525/api/v1/sources/<id>/scan \
-  -H "Authorization: Bearer <token>"
+  -H "Authorization: Bearer ***"
 
 # 4) Inspect observation events (change_type: NEW / CHANGED / UNCHANGED / ERROR)
 curl -s http://localhost:3525/api/v1/sources/<id>/observations \
-  -H "Authorization: Bearer <token>"
+  -H "Authorization: Bearer ***"
 ```
 
 Remote content is stored as bounded metadata only, never raw text; it cannot become active memory without an explicit approval.
 
-### 4. Digest workflow (report-only by default)
+### 5. Digest workflow (report-only by default)
 
 ```bash
 DIGEST_ENABLED=true
 
 curl -s -X POST http://localhost:3525/api/v1/digest-schedules \
-  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ***" -H "Content-Type: application/json" \
   -d '{"name": "daily", "interval_minutes": 1440, "minimum_tier": "WATCH",
        "is_enabled": false}'                     # saved disabled on purpose
 
 curl -s -X POST http://localhost:3525/api/v1/digest-schedules/<id>/generate \
-  -H "Authorization: Bearer <token>"             # produces a local Report
+  -H "Authorization: Bearer ***"             # produces a local Report
 ```
 
 Generated digests land in **Reports**. Nothing is emailed, posted, or streamed out; external delivery is a reserved, separately gated flag (`DIGEST_DELIVERY_ENABLED`).
 
-### 5. Risk triage with human-in-the-loop alerting
+### 6. Risk triage with human-in-the-loop alerting
 
 When Technocore monitoring is configured (`TECHNOCORE_ENABLED=true` + monitored rooms) the evaluator classifies messages on five dimensions. Alerts are a separate decision:
 
@@ -321,27 +419,21 @@ RISK_ALERTS_ENABLED=true    # only now may RISKY/DANGEROUS findings reach Telegr
 
 Triage everything in the **Trust Center** tab: tier distribution, live control state, per-message reason, and raw remote text (labeled *untrusted*).
 
-### 6. Work the tclk market on value rails only
+### 7. Work the judged programs (blockrewards / harness)
 
-Arm the market agent and keep it on escrow-bearing rails:
+The judged programs pay in FLOP on the paper rail until the value escrow exists — the agent serves them under the scoped profile:
 
 ```bash
-TCLK_ENABLED=true
-TCLK_MONITOR_ROOMS=tclk-offers        # rooms parsed for offer frames
-TCLK_AGENT_ENABLED=true
-TCLK_AGENT_RAILS=flop-htlc            # value rails only -- paper is skipped
-TCLK_AGENT_MIN_TIER=watch             # operator risk ceiling
-TCLK_ACCEPT_REQUIRE_BRIEF=true        # never accept what we cannot answer
+TCLK_AGENT_RAILS=flop-htlc,paper
+TCLK_AGENT_MAX_AMOUNT=10000        # keeps the 500k bot floods out
+TCLK_AGENT_TASK_PATTERNS=...,math,census,probe,attest,tip,val,protocol,harness
 ```
 
-Every offer is audited whether it is accepted or not (`tclk_offer_audits`), and
-each gate can only tighten the decision. Accepted deals are worked to delivery,
-and the escrow is revealed and receipted as soon as the payer locks. The
-dashboard (`apps/logs`) counts earnings **per rail**, so simulated (`paper`)
-deals can never read as money. Full knob list:
-[docs/CONFIGURATION.md](./docs/CONFIGURATION.md).
+- **Exact answers or nothing.** The solver answers the deterministic families (protocol transcript fold, validation PASS/FAIL, math, `/kv` note reads, HTTP probes, one-word tips, documentation quotes) and never guesses.
+- **Judged work counts.** Passes on claimed deals build the passport ranking; the harness season takes units from any DID over the bar.
+- **Everything is audited.** `tclk_offer_audits` records each decision and its reason; `/saglik` and the dashboard show the per-rail split.
 
-### 7. Verify an installation
+### 8. Verify an installation
 
 ```bash
 ./scripts/secret-scan.sh .          # 0 findings required
@@ -353,12 +445,13 @@ curl -s http://localhost:3525/health/ready
 
 ## Security Model
 
-- **Tool isolation** -- Only declared, schema-validated connectors; no arbitrary shell or Docker access.
-- **SSRF protection** -- Loopback/RFC1918/link-local/metadata/socket/internal hostnames are blocked; DNS re-resolution and redirect re-classification; allowlist + size/timeout guards.
-- **Policy + approvals** -- `READ_ONLY` auto; `SAFE_WRITE` audited; `PUBLIC_WRITE`/`PRIVILEGED` require human approval (single-use, expiry-bound, HMAC over canonical action hash); `DESTRUCTIVE` is denied.
-- **Redaction** -- Tokens, `Authorization` headers, JWTs, and env secrets are masked before reaching the model or memory.
-- **Container hardening** -- Non-root user, read-only rootfs, `no-new-privileges`, `cap_drop: ALL`; only `127.0.0.1:3525` is host-exposed.
-- **Telegram** -- Numeric allowlist only; group mode off by default; webhook secret verified; `update_id` deduplication.
+- **Tool isolation** — Only declared, schema-validated connectors; no arbitrary shell or Docker access.
+- **SSRF protection** — Loopback/RFC1918/link-local/metadata/socket/internal hostnames are blocked; DNS re-resolution and redirect re-classification; allowlist + size/timeout guards.
+- **Policy + approvals** — `READ_ONLY` auto; `SAFE_WRITE` audited; `PUBLIC_WRITE`/`PRIVILEGED` require human approval (single-use, expiry-bound, HMAC over canonical action hash); `DESTRUCTIVE` is denied.
+- **Identity & key handling** — The agent's Ed25519 key is generated locally, stored at `./secrets/did.ed25519` (0600, gitignored, outside the repo tree's tracked files) and bind-mounted read-only into containers; only the DID and signatures ever leave the machine. The repository contains no keys, DIDs, or tokens — `secret-scan.sh` enforces it.
+- **Redaction** — Tokens, `Authorization` headers, JWTs, and env secrets are masked before reaching the model or memory.
+- **Container hardening** — Non-root user, read-only rootfs, `no-new-privileges`, `cap_drop: ALL`; only `127.0.0.1:3525` is host-exposed.
+- **Telegram** — Numeric allowlist only; group mode off by default; webhook secret verified; `update_id` deduplication.
 
 Full details: [SECURITY.md](./SECURITY.md)
 
@@ -369,22 +462,22 @@ Full details: [SECURITY.md](./SECURITY.md)
 ```
 .
 |-- apps/
-|   |-- api/            # FastAPI app -- routes, SSE, webhooks, auth
+|   |-- api/            # FastAPI app — routes, SSE, webhooks, auth
 |   |-- worker/         # Agent run execution
-|   |-- scheduler/      # Periodic source scans, memory promotion, digests
-|   |-- migrate/        # Alembic one-shot runner
-|   |-- earn/           # Earning loops: market trader + judged-deal worker (blockrewards.py)
+|   |-- scheduler/      # Periodic source scans, memory promotion, digests,
+|   |                   #   tclk market agent (agent_scorer, tclk_solver, br_fold, producer)
+|   |-- earn/           # Earning loops: trader, kibble, close1, blockrewards
 |   |-- logs/           # Live dashboard (rail-aware earnings) + /saglik JSON
+|   |-- tools/          # flop_register.py (FLOP identity), flop.py, archive_rooms.py
 |   +-- web/            # React + Vite + Tailwind 4 frontend (built into API image)
 |-- packages/           # Shared Python packages (policy, memory, observability, connectors)
+|   |-- connectors/     #   technocore.py (tclk/1 signing), tclk.py (frames), ...
 |   |-- agent_core/skills.py      # source-controlled capability manifests
 |   +-- observability/            # source_monitor.py, digest_service.py (report-only)
 |-- skills/             # Capability manifests (JSON): system-health, risk-triage, observation skills
 |-- migrations/         # Alembic migrations
-|-- infra/
-|   |-- caddy/          # Gateway config
-|   +-- compose/        # initdb
-|-- scripts/            # quickstart.sh, secret-scan.sh, backup-restore.sh
+|-- infra/              # caddy gateway config, compose initdb, systemd units
+|-- scripts/            # setup.sh (wizard), quickstart.sh, secret-scan.sh, backup-restore.sh
 |-- docs/
 |   |-- INSTALL.md
 |   |-- CONFIGURATION.md
@@ -425,12 +518,12 @@ CI runs on every push/PR to `master`: `pytest` (pgvector + Redis + coverage >= 7
 
 | Document | Description |
 |---|---|
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | System, data model (22 tables), queue/worker, connectors, API, SSE |
-| [SECURITY.md](./SECURITY.md) | Isolation, runtime, agent, Telegram, web, and approval security |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | System, data model, queue/worker, connectors, market agent, API, SSE |
+| [SECURITY.md](./SECURITY.md) | Isolation, runtime, agent, identity/key handling, Telegram, web, approvals |
 | [OPERATIONS.md](./OPERATIONS.md) | Health, backup/restore, deploy, incident runbook |
-| [docs/INSTALL.md](./docs/INSTALL.md) | Prerequisites, quick start detail, environment reference |
-| [docs/CONFIGURATION.md](./docs/CONFIGURATION.md) | Full env and LLM/Telegram matrix |
-| [docs/UI_GUIDE.md](./docs/UI_GUIDE.md) | Web UI -- 11 tabs, design system, onboarding, SSE |
+| [docs/INSTALL.md](./docs/INSTALL.md) | Prerequisites, quick start detail, FLOP registration, environment reference |
+| [docs/CONFIGURATION.md](./docs/CONFIGURATION.md) | Full env and LLM/Jev/Telegram/FLOP matrix |
+| [docs/UI_GUIDE.md](./docs/UI_GUIDE.md) | Web UI — tabs, design system, onboarding, SSE |
 | [CHANGELOG.md](./CHANGELOG.md) | Version history (Keep a Changelog / SemVer) |
 | [LICENSE](./LICENSE) | MIT |
 
@@ -440,7 +533,7 @@ CI runs on every push/PR to `master`: `pytest` (pgvector + Redis + coverage >= 7
 
 This project follows [Semantic Versioning](https://semver.org/) and [Keep a Changelog](https://keepachangelog.com/). The canonical version is defined in `packages/observability/__init__.py` (`__version__`) and tagged as `vMAJOR.MINOR.PATCH`.
 
-Current release: **v1.0.0** -- see [CHANGELOG.md](./CHANGELOG.md).
+Current release: **v1.0.0** — see [CHANGELOG.md](./CHANGELOG.md).
 
 To cut a new release:
 
@@ -452,5 +545,4 @@ gh release create v1.0.0 --generate-notes
 
 ## License
 
-MIT -- see [LICENSE](./LICENSE).
-
+MIT — see [LICENSE](./LICENSE).

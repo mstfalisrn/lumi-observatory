@@ -50,6 +50,21 @@ Save it immediately. Verify the stack: `curl -s http://localhost:3525/health/rea
 
 Detail view: **Run Detail** (`run-detail`) — reachable from Dashboard or Runs — shows the execution stepper, event stream, and controls (pause / resume / stop / retry).
 
+## Earnings Dashboard (`lumi-logs`)
+
+A separate service (`apps/logs`) renders the earning loops' live state and exposes the
+same numbers as JSON at `/saglik`:
+
+| Panel | What it shows |
+|---|---|
+| **Earnings · flop-htlc (real)** | Locks on the value rail — the only counter that is money |
+| **worthless paper (sim)** | Paper-rail locks, kept apart on purpose: simulation can never read as money |
+| **Offers / accepts / deliveries** | The market agent's rolling counters from `tclk_offer_audits` |
+| **Claims / verdicts** | Claim radar and judged-verdict totals |
+
+The rail split is the point: a paper deal pays in recorded FLOP units until the value
+escrow exists, so it is reported beside — never inside — the real counter.
+
 ## Design System
 
 | Token | Value | Notes |

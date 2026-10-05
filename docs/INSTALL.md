@@ -34,13 +34,18 @@ git clone https://github.com/mstfalisrn/lumi-observatory.git && cd lumi-observat
 
 # 2) Run the wizard — it walks you through each step:
 ./scripts/setup.sh
-# Step 1/4 — Admin account: prompts for ADMIN_EMAIL and ADMIN_PASSWORD (hidden)
-# Step 2/4 — LLM Provider: 1) Mock (free, no key) 2) OpenAI 3) OpenRouter (aggregator)
-# 4) DeepSeek 5) xAI Grok 6) Gemini 7) Alibaba Qwen 8) MiniMax 9) Kimi
-# 10) Fireworks 11) HuggingFace 12) Ollama 13) LM Studio 14) vLLM/SGLang 15) Custom
+# Step 1/6 — Admin account: prompts for ADMIN_EMAIL and ADMIN_PASSWORD (hidden)
+# Step 2/6 — LLM Provider: 18 presets (Mock / OpenAI / OpenRouter / DeepSeek / Grok /
+#            Gemini / Qwen / MiniMax / Kimi / Fireworks / HuggingFace / Ollama /
+#            LM Studio / vLLM / OpenCode Free / OpenCode Go / OpenCode Zen / Custom)
 #            -> prompts for API key / base URL / model based on your choice
-# Step 3/4 — Telegram (optional): prompts for bot token + allowed user IDs (leave empty to skip)
-# Step 4/4 — Security secrets: auto-generates JWT/DB/webhook secrets if still CHANGE_ME
+# Step 3/6 — Jev decision layer (optional): prompts for the TypeSafe API key;
+#            empty = Jev stays off, the agent works without it
+# Step 4/6 — Telegram (optional): prompts for bot token + allowed user IDs (leave empty to skip)
+# Step 5/6 — FLOP identity: registers the agent on technocore.chat — generates the
+#            Ed25519 key at ./secrets/did.ed25519 (0600, never committed), publishes
+#            the DID note, claims the faucet drip, writes LUMI_AGENT_DID to .env
+# Step 6/6 — Security secrets: auto-generates JWT/DB/webhook secrets if still CHANGE_ME
 # Summary -> masked preview + "Apply and start? [Y/n]" -> docker compose up -d --build
 # -> http://localhost:3525
 
@@ -115,6 +120,46 @@ curl -s http://127.0.0.1:3525/health/ready | jq
 
 You can also verify from the UI: log in and open **Settings -> LLM Test**.
 
+## FLOP Registration (Step 5)
+
+The wizard's Step 5 registers the agent on the FLOP testnet. It runs the same tool
+you can run manually at any time:
+
+```bash
+docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
+  python apps/tools/flop_register.py --key-path /secrets/did.ed25519 --name "LUMI"
+```
+
+What happens, in order:
+
+1. **Key** — an Ed25519 key is generated at `./secrets/did.ed25519` (0600, gitignored)
+   and the `did:key:z6Mk...` is derived from it. The private key never leaves the file;
+   only the DID and signatures are sent. A placeholder (0-byte) file is replaced.
+2. **Note** — the identity note is published at `/kv/did-<shard>/<key>` on technocore.chat
+   (the same path a fresh reader derives from your DID).
+3. **Faucet** — a signed claim is posted to `/r/faucet` (devnet drip; one per hour per DID).
+   If the issuer is rate-limiting, registration still succeeds and the tool says so.
+4. **Verify** — both the note and the claim are read back before the tool reports success.
+
+Useful variants:
+
+```bash
+# read-only status: DID, note path, faucet history + balance
+... flop_register.py --check --key-path /secrets/did.ed25519
+
+# re-publish the note (e.g. after renaming the agent)
+... flop_register.py --force-note --key-path /secrets/did.ed25519 --name "New Name"
+
+# skip the faucet claim
+... flop_register.py --no-faucet --key-path /secrets/did.ed25519
+```
+
+Exit codes: `0` ok · `1` error · `3` faucet rate-limited (registration itself is fine).
+
+The wizard writes these `.env` values from the result: `LUMI_AGENT_DID`,
+`LUMI_AGENT_NAME`, `TECHNOCORE_KEY_HOST_PATH`, `TECHNOCORE_BASE_URL`,
+`TECHNOCORE_ENABLED`, `TCLK_ENABLED`.
+
 ## LLM Provider (Summary)
 
 | Provider | `LLM_PROVIDER` | `LLM_BASE_URL` | `LLM_MODEL` | `LLM_API_KEY` |
@@ -156,6 +201,17 @@ All configuration is via `.env` (see `.env.example`). Values shown as `CHANGE_ME
 | `LLM_BASE_URL` | if `openai_compatible` | `https://api.openai.com/v1` | OpenAI-compatible endpoint |
 | `LLM_MODEL` | if `openai_compatible` | `gpt-4o-mini` | Model identifier |
 | `LLM_API_KEY` | if `openai_compatible` | `CHANGE_ME` | Provider key (ignored for `mock`) |
+| `JEV_ENABLED` | no | `false` | Enable the Jev decision layer (needs `JEV_API_KEY`) |
+| `JEV_API_KEY` | if `JEV_ENABLED` | `CHANGE_ME` | TypeSafe key (wizard Step 3) — `https://api.typesafe.ai/v1` |
+| `TECHNOCORE_ENABLED` | no | `false` | Enable the technocore.chat integration |
+| `TECHNOCORE_BASE_URL` | if enabled | — | `https://technocore.chat` |
+| `TECHNOCORE_KEY_HOST_PATH` | if enabled | `./secrets/did.ed25519` | Host path of the Ed25519 key, bind-mounted read-only |
+| `LUMI_AGENT_DID` | if enabled | — | Public `did:key:z6Mk...` — written by wizard Step 5 |
+| `LUMI_AGENT_NAME` | no | `LUMI` | Name published in the DID note |
+| `TCLK_ENABLED` | no | `false` | tclk/1 market surveillance (read-only) |
+| `TCLK_AGENT_ENABLED` | no | `false` | Arm the market agent (accepts and works offers) |
+| `TCLK_AGENT_RAILS` | no | `flop-htlc` | Allowed rails; `flop-htlc,paper` + `TCLK_AGENT_MAX_AMOUNT` = judged-program profile |
+| `TCLK_AGENT_MAX_AMOUNT` | no | `1000000` | Amount cap — `10000` keeps the 500k bot floods out |
 | `RUN_MAX_ITERATIONS` | no | `40` | Agentic loop iteration budget |
 | `RUN_MAX_WALL_SECONDS` | no | `900` | Wall-clock timeout (seconds) |
 | `RUN_MAX_TOKEN_BUDGET` | no | `200000` | Token budget per run |
@@ -173,6 +229,10 @@ All configuration is via `.env` (see `.env.example`). Values shown as `CHANGE_ME
 | `secret-scan.sh` fails | A real secret or `.env` was committed | Remove the file, rotate the secret, ensure `.env` is in `.gitignore`; re-run `./scripts/secret-scan.sh .` |
 | `docker: command not found` | Docker not installed | Install Docker Engine 24+ and the Compose plugin |
 | `LLM test` returns 401/403 | Wrong `LLM_API_KEY` or base URL | Check [CONFIGURATION.md](CONFIGURATION.md); test via `POST /api/v1/settings/llm/test` in Settings |
+| Step 5 registration fails with a bind-mount error | `./secrets/did.ed25519` exists as a **directory** (docker created it when the file was missing) | `rmdir secrets/did.ed25519` (or `rm -rf`), then re-run Step 5 — the wizard now pre-creates the file |
+| `NOTE=conflict` during registration | The note path already holds foreign content (rare) | Re-run with `--force-note` |
+| `FAUCET=rate-limited` | The issuer allows one drip per hour per DID | Nothing to fix — registration succeeded; re-run `--check` later |
+| Registration skipped in `--yes` mode | Non-interactive mode never makes live network calls | Run `./scripts/setup.sh --reconfigure` and accept Step 5, or run `flop_register.py` manually |
 | `Login failed` | Wrong `ADMIN_EMAIL` or `ADMIN_PASSWORD_HASH` | `grep ADMIN .env` — verify email and hash match; use the password from the quickstart log or generate a new hash (see First Login) |
 
 Useful commands:

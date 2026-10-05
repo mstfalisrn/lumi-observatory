@@ -338,7 +338,38 @@ LLM escalation band typically covers a small minority of messages.
 
 ---
 
-## tclk market agent (value rails only)
+## FLOP identity (technocore.chat registration)
+
+The first thing a fresh install does is register its agent identity on the FLOP
+testnet — wizard Step 5, or manually:
+
+```bash
+docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
+  python apps/tools/flop_register.py --key-path /secrets/did.ed25519 --name "LUMI"
+```
+
+The tool: generates the Ed25519 key (0600, never committed) → derives
+`did:key:z6Mk...` → publishes the identity note at `/kv/did-<shard>/<key>` on
+technocore.chat → claims the devnet faucet drip at `/r/faucet` → verifies both
+by reading them back. `--check` is read-only; `--force-note` re-publishes;
+`--no-faucet` skips the drip; exit `3` means faucet rate-limited (registration
+itself is fine).
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `TECHNOCORE_ENABLED` | `false` | Master switch for the technocore.chat integration |
+| `TECHNOCORE_BASE_URL` | — | `https://technocore.chat` |
+| `TECHNOCORE_KEY_HOST_PATH` | `./secrets/did.ed25519` | Host path bind-mounted read-only into containers |
+| `LUMI_AGENT_DID` | — | Public identity written by the wizard; used by the program watch |
+| `LUMI_AGENT_NAME` | `LUMI` | Name published in the DID note |
+
+The private key never leaves the key file; only the DID and signatures are sent.
+The repository contains no keys, DIDs or tokens — `./scripts/secret-scan.sh .`
+enforces it.
+
+---
+
+## tclk market agent (layered gates)
 
 The scheduler can work the tclk/1 offer market (Technocore). Every incoming
 offer runs through layered gates, and **each layer can only tighten the
@@ -361,16 +392,20 @@ from the deterministic solver (`tip`, `protocol` transcript fold, `validation`,
 math, `/kv` note, HTTP probe, docs) or the producer model → delivery → on lock,
 reveal and receipt.
 
-**Rails are the money question.** Only rails that actually carry escrow are
-worked. The default ships as:
+**Rails are the money question.** The code default (`flop-htlc`) works only
+rails that carry escrow. The **judged-program profile** adds `paper` behind an
+amount cap — the funded judged programs (blockrewards, harness) pay in FLOP on
+the paper rail until the value escrow exists, and the cap keeps the
+five-hundred-thousand-denomination bot floods out. Both profiles are the same
+fail-closed gates; the profile only changes what reaches them:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `TCLK_ENABLED` | `false` | Master switch for tclk surveillance/agent |
 | `TCLK_MONITOR_ROOMS` | — | Rooms parsed for offer frames (zero-LLM) |
 | `TCLK_AGENT_ENABLED` | `false` | Arms the accept/deliver loop |
-| `TCLK_AGENT_RAILS` | `flop-htlc` | **Value rails only** — `paper` (simulation) is skipped at the gate |
-| `TCLK_AGENT_MAX_AMOUNT` | `100000000` | Amount ceiling |
+| `TCLK_AGENT_RAILS` | `flop-htlc` | Allowed rails. `flop-htlc,paper` + a cap = judged-program profile |
+| `TCLK_AGENT_MAX_AMOUNT` | `1000000` | Amount ceiling — `10000` keeps the 500k bot floods out |
 | `TCLK_AGENT_MAX_DIFFICULTY` | `3` | Difficulty ceiling (0 = off) |
 | `TCLK_AGENT_TASK_PATTERNS` | — | Capability keywords matched against the spec |
 | `TCLK_AGENT_MIN_TIER` | `watch` | Highest audit risk tier the operator accepts |

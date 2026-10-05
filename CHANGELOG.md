@@ -14,6 +14,10 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 - Configuration flags: `SOURCE_MONITOR_ENABLED`, `SOURCE_MEMORY_CANDIDATES_ENABLED`, `DIGEST_ENABLED`, `RISK_ALERTS_ENABLED` (all off by default) forwarded through docker-compose
 - Production fail-closed SSRF validation on `POST /api/v1/settings/llm/test`
 
+- FLOP identity bootstrap (`apps/tools/flop_register.py`): generates the Ed25519 key (0600, never committed), derives `did:key`, publishes the identity note at `/kv/did-<shard>/<key>`, claims the faucet drip, and verifies both by reading them back — `--check` (read-only), `--force-note`, `--no-faucet`; wired into the setup wizard as Step 5
+- Setup wizard now walks six steps: Admin -> LLM (18 presets) -> Jev (TypeSafe, optional) -> Telegram (optional) -> FLOP registration -> Security secrets; the scheduler image ships `apps/tools/` so registration runs in a one-off container
+- `LUMI_AGENT_DID` / `LUMI_AGENT_NAME` / `TECHNOCORE_KEY_HOST_PATH` env knobs; the program watch reads the DID from `.env` and skips subject-scoped feeds when it is unset (no hardcoded identities anywhere in the repo — tests use synthetic DIDs)
+
 ### Changed
 - Jev is served from TypeSafe directly (`JEV_BASE_URL=https://api.typesafe.ai/v1`, `JEV_EVAL_PATH=/systemone`, `JEV_MODEL=jev-latest`); the `boolean` question type is normalized to `noul` (the API rejects `boolean` with 400) and per-call cost is estimated from token counts
 - tclk market work is gated to value-bearing rails: `TCLK_AGENT_RAILS` now ships as `flop-htlc` only, so `paper` (simulation) and `x402` offers are skipped at the audit gate — paper deals cannot consume accept quota or concurrency slots

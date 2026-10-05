@@ -39,6 +39,27 @@ docker compose up -d --build
 - **Data loss:** restore from backup (`backup-restore.sh restore`).
 - **Circuit breaker tripped:** resets automatically after a 30s cooldown; if persistent, review the failing tool.
 
+## FLOP Registration & Identity
+```bash
+# status: DID, note path, faucet history (read-only)
+docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
+  python apps/tools/flop_register.py --check --key-path /secrets/did.ed25519
+
+# re-register / re-publish (wizard Step 5 does this too)
+docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
+  python apps/tools/flop_register.py --key-path /secrets/did.ed25519 --name "LUMI"
+```
+The key file (`./secrets/did.ed25519`) must be readable by UID 10001 inside containers
+(the wizard sets `root:10001` + 0640). Back it up like any credential — losing it loses
+the identity.
+
+## Earning Loops
+Optional host loops (systemd units or plain processes): `apps/earn/trader.py` (flopmarket),
+`apps/earn/kibble.py`, `apps/earn/close1.py`, `apps/earn/blockrewards.py` (judged deals).
+Each is idempotent and stateful via its own JSON state file; restart-safe.
+Rail-aware earnings: the `lumi-logs` dashboard counts `flop-htlc` as the headline and
+`paper` separately as simulation.
+
 ## Secrets
 - Rotate or generate: `./scripts/configure-secrets.sh --gen` or interactive mode, then `docker compose up -d`.
 - Never print secrets to screen, logs, or commits.

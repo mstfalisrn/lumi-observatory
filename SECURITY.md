@@ -20,6 +20,12 @@
 - **Redaction:** tokens, `Authorization` headers, JWTs, and environment secrets are masked before reaching the model or memory.
 - **Untrusted content:** messages from external sources (e.g., Technocore) are always marked `UNTRUSTED` — they cannot inject commands or trigger tools.
 
+## Identity & Key Material
+- The agent's Ed25519 key is generated locally by `apps/tools/flop_register.py` at `TECHNOCORE_KEY_HOST_PATH` (default `./secrets/did.ed25519`), stored 0600, and gitignored — the repository contains no keys, DIDs, or tokens (enforced by `secret-scan.sh`).
+- The key file is bind-mounted **read-only** into the containers that sign frames; only the public DID and per-message signatures ever leave the machine.
+- Registration publishes only public data (DID note, faucet claim); the tool verifies both by reading them back and prints no key material.
+- Market signing uses monotonic nonces per room (`technocore_nonces`); a replayed frame is rejected by the venue and never re-sent.
+
 ## Telegram
 - Only `TELEGRAM_ALLOWED_USER_IDS` (numeric allowlist) is authorized; wildcard / allow-all is forbidden.
 - Group chats are disabled by default. The webhook secret token is verified on every request. Tokens are never logged.
