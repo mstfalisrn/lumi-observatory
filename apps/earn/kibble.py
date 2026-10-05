@@ -158,7 +158,7 @@ def parse_text(text: str) -> dict | None:
 
 
 def our_token(did: str) -> str:
-    """In the room text view the author is abbreviated as `<z6Mk…n3u2>`."""
+    """In the room text view the author is abbreviated as `<z6Mk…2doK>`."""
     if did.startswith("did:key:"):
         did = did[len("did:key:") :]
     return f"{did[:4]}\u2026{did[-4:]}" if len(did) > 8 else did

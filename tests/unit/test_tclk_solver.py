@@ -45,15 +45,15 @@ def test_verification_count_brief():
     brief = (
         "verification | From the note /kv/tclk-mat-en/mtask-38490075 (an excerpt of the "
         "tclk board, one frame per line: seq | time | type | from | ref): how many rows are "
-        "lock frames posted by did:key:z6MkgGxxaNWdtuEnPXDvRQCVE3CNGsFkhEUwbPgZ8kWSZhwG? "
+        "lock frames posted by did:key:z6MksmozmdJ6C8KQbp6fjyJkwUBwaz5GeNFBLSFLGPribuTE? "
         "Give the count."
     )
     note = "\n".join(
         [
-            "9001 | 2026-09-24T05:00:00Z | lock | did:key:z6MkgGxxaNWdtuEnPXDvRQCVE3CNGsFkhEUwbPgZ8kWSZhwG | 0xaa",
-            "9002 | 2026-09-24T05:00:01Z | offer | did:key:z6MkgGxxaNWdtuEnPXDvRQCVE3CNGsFkhEUwbPgZ8kWSZhwG | 0xbb",
+            "9001 | 2026-09-24T05:00:00Z | lock | did:key:z6MksmozmdJ6C8KQbp6fjyJkwUBwaz5GeNFBLSFLGPribuTE | 0xaa",
+            "9002 | 2026-09-24T05:00:01Z | offer | did:key:z6MksmozmdJ6C8KQbp6fjyJkwUBwaz5GeNFBLSFLGPribuTE | 0xbb",
             "9003 | 2026-09-24T05:00:02Z | lock | did:key:z6MkotherAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA | 0xcc",
-            "9004 | 2026-09-24T05:00:03Z | lock | did:key:z6MkgGxxaNWdtuEnPXDvRQCVE3CNGsFkhEUwbPgZ8kWSZhwG | 0xdd",
+            "9004 | 2026-09-24T05:00:03Z | lock | did:key:z6MksmozmdJ6C8KQbp6fjyJkwUBwaz5GeNFBLSFLGPribuTE | 0xdd",
         ]
     )
     got = solve_note(brief, lambda path: note if path.endswith("mtask-38490075") else None)
@@ -172,20 +172,20 @@ PROTO_TRANSCRIPT = (
     "protocol | Fold this tclk/1 transcript with the reference rules. | reward tier 4/5 | "
     "done looks like: one line: the final status word, then one sentence naming the rejected "
     "frame and the reason, or 'no rejected records'. | MATERIAL: tclk-offers | "
-    "2026-09-28T08:45:25.631Z | did:key:z6MkemL7N8jvu1ccXZDch1KS1538ke32duBayvW5N3Bvvbht | "
+    "2026-09-28T08:45:25.631Z | did:key:z6MkBt9j1xVUdnSedQo8mUZ1yxhFibJSeeGoGgcK4NRBZCg8 | "
     'tclk1 {"amount":"7634","asset":"PAPER","claimByMs":1790587525631,"expiresMs":1790585725631,'
-    '"from":"did:key:z6MkemL7N8jvu1ccXZDch1KS1538ke32duBayvW5N3Bvvbht",'
-    '"id":"0x4cce50947d0fb224051e270fbd0c33fc94d8796c03d27d31aeaf3dd3cb444b1e",'
+    '"from":"did:key:z6MkBt9j1xVUdnSedQo8mUZ1yxhFibJSeeGoGgcK4NRBZCg8",'
+    '"id":"0x729397b5a98ed252064d1454a02085a3a86eb900cc782e0d51702f16f9c5733d",'
     '"job":{"id":"task-7d3fd49f","proto":"a2a"},"lock":"hash","nonce":"28858be8502af12c",'
     '"rails":["paper"],"refundAfterMs":1790589325631,"role":"payer","type":"offer"} '
-    "tclk-offers | 2026-09-28T08:45:45.631Z | did:key:z6MkiALWpd8drq93rEQCzFhbtxXR4RVDkskWN3BN1py3qhio | "
-    'tclk1 {"contract":"0x7257143f5a86b8735d8037a2f0bfc6910f2158e432564137031508dd0bd46ff3",'
-    '"from":"did:key:z6MkiALWpd8drq93rEQCzFhbtxXR4RVDkskWN3BN1py3qhio","nonce":"501015796f266647",'
-    '"ref":"0x4cce50947d0fb224051e270fbd0c33fc94d8796c03d27d31aeaf3dd3cb444b1e",'
+    "tclk-offers | 2026-09-28T08:45:45.631Z | did:key:z6MkqVn7pW4sTmR9dY2cFhJxLbE3uK8gZaP6wNr5eS1oX | "
+    'tclk1 {"contract":"0x08087e4eb8de454ddf2ea9af63f822d2ff45c70b429971aea1ff5c11e4af4186",'
+    '"from":"did:key:z6MkqVn7pW4sTmR9dY2cFhJxLbE3uK8gZaP6wNr5eS1oX","nonce":"501015796f266647",'
+    '"ref":"0x729397b5a98ed252064d1454a02085a3a86eb900cc782e0d51702f16f9c5733d",'
     '"statement":"0x70a43e7e752a9b9c7a84b8b9c03e095690c0d71bfb681208bb6a0d1f7a4919fe","type":"accept"} '
-    "mb-p-tclk-7257143f5a86b873 | 2026-09-28T08:46:05.631Z | did:key:z6MkemL7N8jvu1ccXZDch1KS1538ke32duBayvW5N3Bvvbht | "
-    'tclk1 {"contract":"0x7257143f5a86b8735d8037a2f0bfc6910f2158e432564137031508dd0bd46ff3",'
-    '"from":"did:key:z6MkemL7N8jvu1ccXZDch1KS1538ke32duBayvW5N3Bvvbht","reason":"spec withdrawn","type":"cancel"}'
+    "mb-p-tclk-08087e4eb8de454d | 2026-09-28T08:46:05.631Z | did:key:z6MkBt9j1xVUdnSedQo8mUZ1yxhFibJSeeGoGgcK4NRBZCg8 | "
+    'tclk1 {"contract":"0x08087e4eb8de454ddf2ea9af63f822d2ff45c70b429971aea1ff5c11e4af4186",'
+    '"from":"did:key:z6MkBt9j1xVUdnSedQo8mUZ1yxhFibJSeeGoGgcK4NRBZCg8","reason":"spec withdrawn","type":"cancel"}'
 )
 
 
@@ -204,9 +204,9 @@ def test_protocol_transcript_folds_to_cancelled():
 def test_protocol_reports_the_first_rejected_frame():
     # a heartbeat from a third party in the deal room is rejected by the fold
     bad = PROTO_TRANSCRIPT + (
-        " mb-p-tclk-7257143f5a86b873 | 2026-09-28T08:46:10.631Z | did:key:z6MkuN98HgBZEgVEwG4HeB8Hj2hasfrctByKma7GJyueF92M | "
-        'tclk1 {"contract":"0x7257143f5a86b8735d8037a2f0bfc6910f2158e432564137031508dd0bd46ff3",'
-        '"from":"did:key:z6MkuN98HgBZEgVEwG4HeB8Hj2hasfrctByKma7GJyueF92M","nonce":"abc12345deadbeef","type":"heartbeat"}'
+        " mb-p-tclk-08087e4eb8de454d | 2026-09-28T08:46:10.631Z | did:key:z6MkvB5nQ8rT2mW7xH4cJdL9fG3sK6pZaE1yUZoR5iN | "
+        'tclk1 {"contract":"0x08087e4eb8de454ddf2ea9af63f822d2ff45c70b429971aea1ff5c11e4af4186",'
+        '"from":"did:key:z6MkvB5nQ8rT2mW7xH4cJdL9fG3sK6pZaE1yUZoR5iN","nonce":"abc12345deadbeef","type":"heartbeat"}'
     )
     answer = solve_protocol(bad)
     assert answer is not None and answer.startswith("cancelled rejected heartbeat frame:")

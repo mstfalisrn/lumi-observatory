@@ -76,11 +76,10 @@ from psycopg.types.json import Jsonb
 
 from observability.llm_usage import dsn
 
-# Our agent DID. The kibble score is queried with this DID and this is what we
-# look for in the feeds.
-OUR_DID = os.environ.get(
-    "LUMI_AGENT_DID", "did:key:z6MkAUDITPLACEHOLDERDIDnotarealkey00000000000"
-)
+# Our agent DID — written to .env by the setup wizard after FLOP registration
+# (scripts/setup.sh -> apps/tools/flop_register.py). With no DID configured the
+# subject-scoped feeds are skipped, never guessed.
+OUR_DID = os.environ.get("LUMI_AGENT_DID", "").strip()
 
 # Verdict rows are read from these rooms (more can be added, comma-separated).
 VERDICT_ROOMS = tuple(
@@ -267,6 +266,14 @@ def parse_feed(feed: Feed, body: object, raw_len: int = 0) -> dict:
 
 def snapshot_feed(feed: Feed, client: httpx.Client | None = None) -> dict:
     """Download the feed and return the snapshot; an error payload on failure."""
+    if not OUR_DID:
+        return {
+            "source": feed.name,
+            "subject_did": "",
+            "score": None,
+            "found": False,
+            "payload": {"error": "LUMI_AGENT_DID not set"},
+        }
     url = feed.url_for(OUR_DID)
     own = client is None
     client = client or httpx.Client(timeout=FEED_TIMEOUT_S, follow_redirects=True)

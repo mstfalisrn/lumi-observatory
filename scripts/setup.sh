@@ -29,8 +29,10 @@ for arg in "$@"; do
       echo ""
       echo "What it does:"
       echo "  1) Creates .env from .env.example if missing"
-      echo "  2) Walks you through: Admin -> LLM Provider -> Telegram -> Security secrets"
-      echo "  3) Writes .env, runs docker compose up -d --build, and verifies with secret-scan"
+      echo "  2) Walks you through: Admin -> LLM -> Jev (optional) -> Telegram (optional)"
+      echo "     -> FLOP registration -> Security secrets"
+      echo "  3) Registers the agent on the FLOP testnet: Ed25519 key, DID note, faucet drip"
+      echo "  4) Writes .env, runs docker compose up -d --build, and verifies with secret-scan"
       echo ""
       echo "Re-run anytime to fix a value:"
       echo "  ./scripts/setup.sh --reconfigure"
@@ -172,7 +174,7 @@ fi
 banner
 
 # ---- Step 1: Admin ----
-echo -e "${BOLD}Step 1/4 — Admin account${RESET}  ${DIM}(used for Web UI login)${RESET}"
+echo -e "${BOLD}Step 1/6 — Admin account${RESET}  ${DIM}(used for Web UI login)${RESET}"
 CUR_EMAIL="$(get_env_val ADMIN_EMAIL)"
 [ -z "$CUR_EMAIL" ] || [ "$CUR_EMAIL" = "CHANGE_ME" ] && CUR_EMAIL="admin@example.com"
 ask "Admin email" "$CUR_EMAIL" IN_EMAIL
@@ -220,7 +222,7 @@ echo ""
 # ---- Step 2: LLM Provider ----
 # Covers the full provider ecosystem via OpenAI-compatible presets.
 # See docs/CONFIGURATION.md for the complete 40+ provider mapping.
-echo -e "${BOLD}Step 2/4 — LLM Provider${RESET}  ${DIM}(18 presets incl. OpenCode Free/Go/Zen + Custom; all OpenAI-compatible; mock = free)${RESET}"
+echo -e "${BOLD}Step 2/6 — LLM Provider${RESET}  ${DIM}(18 presets incl. OpenCode Free/Go/Zen + Custom; all OpenAI-compatible; mock = free)${RESET}"
 CUR_PROVIDER="$(get_env_val LLM_PROVIDER)"; [ -z "$CUR_PROVIDER" ] && CUR_PROVIDER="mock"
 CUR_BASE="$(get_env_val LLM_BASE_URL)"; CUR_MODEL_DISP="$(get_env_val LLM_MODEL)"
 echo -e "  ${DIM}Current: provider=${CUR_PROVIDER}  base=${CUR_BASE:- -}  model=${CUR_MODEL_DISP:- -}${RESET}"
@@ -481,8 +483,36 @@ case "$LLM_CHOICE" in
 esac
 echo ""
 
-# ---- Step 3: Telegram (optional) ----
-echo -e "${BOLD}Step 3/4 — Telegram (optional)${RESET}  ${DIM}(leave empty to skip)${RESET}"
+# ---- Step 3: Jev decision layer (optional) ----
+echo -e "${BOLD}Step 3/6 — Jev decision layer (optional)${RESET}"
+echo -e "${DIM}  Cheap typed decisions (~$0.00002, ~200 ms) that veto unsafe market offers.${RESET}"
+echo -e "${DIM}  Needs a TypeSafe key (api.typesafe.ai). Leave empty to skip — the agent works without it.${RESET}"
+CUR_JEV="$(get_env_val JEV_API_KEY)"
+if [ -n "$CUR_JEV" ] && [ "$CUR_JEV" != "CHANGE_ME" ]; then
+  echo -e "${DIM}  Current key: $(mask "$CUR_JEV") — leave empty to keep, type 'clear' to disable${RESET}"
+fi
+ask_secret "TypeSafe API key (empty = skip Jev)" IN_JEV
+if [ "$IN_JEV" = "clear" ]; then
+  set_env_val "JEV_API_KEY" "CHANGE_ME"
+  set_env_val "JEV_ENABLED" "false"
+  set_env_val "JEV_TCLK_ENABLED" "false"
+  echo -e "${YELLOW}  Jev disabled${RESET}"
+elif [ -n "$IN_JEV" ]; then
+  set_env_val "JEV_API_KEY" "$IN_JEV"
+  set_env_val "JEV_ENABLED" "true"
+  set_env_val "JEV_TCLK_ENABLED" "true"
+  echo -e "${GREEN}✓ Jev enabled — TypeSafe ${RESET}${DIM}$(get_env_val JEV_BASE_URL)${RESET}"
+else
+  if [ -z "$CUR_JEV" ] || [ "$CUR_JEV" = "CHANGE_ME" ]; then
+    echo -e "${DIM}  Skipped — Jev stays off (set later via --reconfigure)${RESET}"
+  else
+    echo -e "${DIM}  Keeping existing Jev key${RESET}"
+  fi
+fi
+echo ""
+
+# ---- Step 4: Telegram (optional) ----
+echo -e "${BOLD}Step 4/6 — Telegram (optional)${RESET}  ${DIM}(leave empty to skip)${RESET}"
 CUR_TOK="$(get_env_val TELEGRAM_BOT_TOKEN)"
 if [ -n "$CUR_TOK" ] && [ "$CUR_TOK" != "CHANGE_ME" ]; then
   echo -e "${DIM}  Current bot token: $(mask "$CUR_TOK") — leave empty to keep, type 'clear' to disable${RESET}"
@@ -507,8 +537,54 @@ else
 fi
 echo ""
 
-# ---- Step 4: Security secrets (auto-generated, not prompted) ----
-echo -e "${BOLD}Step 4/4 — Security secrets${RESET}  ${DIM}(auto-generated if still CHANGE_ME)${RESET}"
+# ---- Step 5: FLOP / Technocore registration ----
+echo -e "${BOLD}Step 5/6 — FLOP identity (technocore.chat)${RESET}"
+echo -e "${DIM}  First run registers this agent on the FLOP testnet: an Ed25519 key (did:key),${RESET}"
+echo -e "${DIM}  the public DID note and a faucet drip. The key file stays on this machine${RESET}"
+echo -e "${DIM}  (./secrets/did.ed25519, 0600) and is never committed.${RESET}"
+if [ "$NONINTERACTIVE" = true ]; then
+  echo -e "${DIM}  Non-interactive mode — skipping live registration (re-run ./scripts/setup.sh --reconfigure)${RESET}"
+else
+  ask "Register this agent on FLOP now? [Y/n]" "Y" IN_REG
+  if [[ ! "$IN_REG" =~ ^[nN] ]]; then
+    ask "Agent name for the public note" "$(get_env_val LUMI_AGENT_NAME)" IN_NAME
+    [ -z "$IN_NAME" ] && IN_NAME="LUMI"
+    mkdir -p secrets && chmod 700 secrets
+    # docker bind-mounts a DIRECTORY when the source file is missing — clear that pitfall
+    if [ -d secrets/did.ed25519 ]; then rmdir secrets/did.ed25519 2>/dev/null || rm -rf secrets/did.ed25519; fi
+    if [ ! -f secrets/did.ed25519 ]; then touch secrets/did.ed25519 && chmod 600 secrets/did.ed25519; fi
+    # let the container user (uid 10001) write the key into the bind mount
+    chown 10001:10001 secrets 2>/dev/null || true
+    echo -e "${CYAN}→ building the scheduler image (carries the registration tool)…${RESET}"
+    docker compose build lumi-scheduler
+    echo -e "${CYAN}→ registering on technocore.chat…${RESET}"
+    REG_OUT="$(docker compose run --rm --no-deps -v "$ROOT/secrets:/secrets" lumi-scheduler \
+      python apps/tools/flop_register.py --key-path /secrets/did.ed25519 --name "$IN_NAME" 2>&1 || true)"
+    printf '%s\n' "$REG_OUT" | sed -n 's/^\(DID=\|KEY=\|NOTE=\|FAUCET=\|NEXT=\|KEY=placeholder\)/  \1/p'
+    REG_DID="$(printf '%s\n' "$REG_OUT" | sed -n 's/^DID=//p' | head -1)"
+    if [ -n "$REG_DID" ]; then
+      set_env_val "LUMI_AGENT_DID" "$REG_DID"
+      set_env_val "LUMI_AGENT_NAME" "$IN_NAME"
+      set_env_val "TECHNOCORE_KEY_HOST_PATH" "./secrets/did.ed25519"
+      set_env_val "TECHNOCORE_BASE_URL" "https://technocore.chat"
+      set_env_val "TECHNOCORE_ENABLED" "true"
+      set_env_val "TCLK_ENABLED" "true"
+      # the key file is read by the containers (uid 10001) and by root
+      chown root:10001 secrets/did.ed25519 2>/dev/null || true
+      chmod 640 secrets/did.ed25519 2>/dev/null || true
+      echo -e "${GREEN}✓ Registered — DID written to .env${RESET}"
+    else
+      echo -e "${YELLOW}  Registration did not complete (offline?). Re-run later:${RESET}"
+      echo -e "${DIM}  ./scripts/setup.sh --reconfigure  →  Step 5${RESET}"
+    fi
+  else
+    echo -e "${DIM}  Skipped — register later via ./scripts/setup.sh --reconfigure${RESET}"
+  fi
+fi
+echo ""
+
+# ---- Step 6: Security secrets (auto-generated, not prompted) ----
+echo -e "${BOLD}Step 6/6 — Security secrets${RESET}  ${DIM}(auto-generated if still CHANGE_ME)${RESET}"
 for var in JWT_SECRET SESSION_ENCRYPTION_MASTER_KEY TELEGRAM_WEBHOOK_SECRET POSTGRES_PASSWORD; do
   cur="$(get_env_val "$var")"
   if [ -z "$cur" ] || [ "$cur" = "CHANGE_ME" ]; then
@@ -547,6 +623,8 @@ echo -e "${BOLD}Summary — will be written to .env:${RESET}"
 echo -e "  ADMIN_EMAIL=${GREEN}$(get_env_val ADMIN_EMAIL)${RESET}"
 echo -e "  LLM_PROVIDER=$(get_env_val LLM_PROVIDER)  LLM_MODEL=$(get_env_val LLM_MODEL)  LLM_BASE_URL=$(get_env_val LLM_BASE_URL)"
 echo -e "  LLM_API_KEY=$(mask "$(get_env_val LLM_API_KEY)")"
+echo -e "  JEV_ENABLED=$(get_env_val JEV_ENABLED)  JEV_API_KEY=$(mask "$(get_env_val JEV_API_KEY)")"
+echo -e "  FLOP DID=$(get_env_val LUMI_AGENT_DID)"
 echo -e "  TELEGRAM_BOT_TOKEN=$(mask "$(get_env_val TELEGRAM_BOT_TOKEN)")  ALLOWED_IDS=$(get_env_val TELEGRAM_ALLOWED_USER_IDS)"
 echo -e "  JWT_SECRET=$(mask "$(get_env_val JWT_SECRET)")  POSTGRES_PASSWORD=$(mask "$(get_env_val POSTGRES_PASSWORD)")"
 echo ""
@@ -577,6 +655,10 @@ echo ""
 echo -e "${BOLD}════════════════════════════════════════════════════${RESET}"
 echo -e "${GREEN}✅ LUMI ready!${RESET}"
 echo -e "  ${BOLD}http://localhost:3525${RESET}  admin: ${GREEN}${FINAL_EMAIL}${RESET}  ${DIM}(password: you set in Step 1)${RESET}"
+FINAL_DID="$(get_env_val LUMI_AGENT_DID)"
+if [ -n "$FINAL_DID" ]; then
+  echo -e "  FLOP:   ${GREEN}${FINAL_DID}${RESET}  ${DIM}(registered on technocore.chat)${RESET}"
+fi
 echo -e "  Logs:   ${CYAN}docker compose logs -f${RESET}"
 echo -e "  Health: ${CYAN}curl -s http://localhost:3525/health/ready | jq${RESET}"
 echo -e "  Fix:    ${CYAN}./scripts/setup.sh --reconfigure${RESET}  ${DIM}or  nano .env && docker compose up -d --build${RESET}"

@@ -45,7 +45,7 @@ def test_rich_alert_context_included(monkeypatch):
             "room": "lobby",
             "seq": 35380306,
             "nick": "Agent-4884",
-            "did": "did:key:z6MkqseBzNpUFeMXNtewZAKbh",
+            "did": "did:key:z6MkuPvzof1VqdFuBZNJfsKA",
             "score": 85,
             "tier": "DANGEROUS",
             "reason": "heuristic: ssrf",
@@ -70,12 +70,12 @@ def test_extract_author_from_did_and_prefix():
 
     disp, did = extract_author(
         {
-            "from": "did:key:z6MkqseBzNpUFeMXNtewZAKbhGPtSLHVwHmbHE5cnumqSJ5Z",
-            "text": "Agent-4884 [did:key:z6MkqseBzNpUFeMXNtewZAKbhGPtSLHVwHmbHE5cnumqSJ5Z]: active worker node registered (load: 25%)",
+            "from": "did:key:z6MkuPvzof1VqdFuBZNJfsKAp8cKxak7FrLMu72W2Cjkb6fi",
+            "text": "Agent-4884 [did:key:z6MkuPvzof1VqdFuBZNJfsKAp8cKxak7FrLMu72W2Cjkb6fi]: active worker node registered (load: 25%)",
         }
     )
     assert disp == "Agent-4884"
-    assert did == "did:key:z6MkqseBzNpUFeMXNtewZAKbhGPtSLHVwHmbHE5cnumqSJ5Z"
+    assert did == "did:key:z6MkuPvzof1VqdFuBZNJfsKAp8cKxak7FrLMu72W2Cjkb6fi"
 
     disp2, _ = extract_author({"nick": "zeynep", "text": "hi"})
     assert disp2 == "zeynep"
@@ -102,13 +102,13 @@ def test_build_risk_reaction_english_template():
         {
             "room": "lobby",
             "seq": 7,
-            "did": "did:key:z6MkAUDITPLACEHOLDERDIDnotarealkey00000000000",
+            "did": "did:key:z6Mks9xvnn16xL4ptMZbwKkbbLSToCvZeuSKgGS5cxVyGr4h",
             "tier": "DANGEROUS",
             "score": 85,
             "reason": "heuristic: ssrf",
         }
     )
-    assert "did:key:z6MkAUDITPLACEHOLDERDIDnotarealkey00000000000" in msg
+    assert "did:key:z6Mks9xvnn16xL4ptMZbwKkbbLSToCvZeuSKgGS5cxVyGr4h" in msg
     assert "DANGEROUS" in msg
     assert "heuristic: ssrf" in msg
     assert "caution" in msg.lower()

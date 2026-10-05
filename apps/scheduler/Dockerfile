@@ -8,6 +8,7 @@ COPY packages/requirements-scheduler.txt /srv/lumi/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY packages/ /srv/lumi/
 COPY apps/scheduler/ /srv/lumi/apps/scheduler/
+COPY apps/tools/ /srv/lumi/apps/tools/
 USER lumi
 EXPOSE 8002
 CMD ["uvicorn", "apps.scheduler.scheduler:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "1"]

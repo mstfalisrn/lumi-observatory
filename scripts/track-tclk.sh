@@ -63,9 +63,13 @@ q "SELECT COALESCE(sum(NULLIF(regexp_replace(amount, '[^0-9]', '', 'g'), '')::nu
 
 echo
 echo "── 6) US ON THE LIVE NETWORK (our own DID's frames) ──"
-DID="did:key:z6MkAUDITPLACEHOLDERDIDnotarealkey00000000000"
-q "SELECT kind || '  →  ' || count(*) FROM tclk_frames
-   WHERE author LIKE '%' || '$DID' || '%' OR author LIKE 'z6MkEXAMPLE%'
-   GROUP BY kind ORDER BY count(*) DESC;"
+DID="${LUMI_AGENT_DID:-}"
+if [ -z "$DID" ]; then
+  echo "   (LUMI_AGENT_DID not set — export it, or run scripts/setup.sh to register)"
+else
+  q "SELECT kind || '  →  ' || count(*) FROM tclk_frames
+     WHERE author LIKE '%' || '$DID' || '%'
+     GROUP BY kind ORDER BY count(*) DESC;"
+fi
 echo -n "   market-wide lock count: "
 q "SELECT count(*) FROM tclk_frames WHERE kind = 'lock';"
