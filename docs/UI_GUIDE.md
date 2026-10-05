@@ -50,10 +50,24 @@ Save it immediately. Verify the stack: `curl -s http://localhost:3525/health/rea
 
 Detail view: **Run Detail** (`run-detail`) — reachable from Dashboard or Runs — shows the execution stepper, event stream, and controls (pause / resume / stop / retry).
 
-## Earnings Dashboard (`lumi-logs`)
+## Live Log (module inside the web UI)
 
-A separate service (`apps/logs`) renders the earning loops' live state and exposes the
-same numbers as JSON at `/saglik`:
+The live log is now a first-class module of the web UI — nav item **Live Log** —
+rendered from `GET /api/v1/live/log`. Every panel of the standalone page is there:
+summary cards (LLM/Jev activity, accepted/delivered, jobs done, escrow locks,
+earnings per rail), LLM token spend (1h/24h/7d/total + per-purpose table + recent
+calls), market flow and score, job-completion table, LLM log, Jev log, tclk work
+flow and the earnings table. It auto-refreshes every 20 seconds (toggle in the
+header) and shows a UTC "son güncelleme" clock.
+
+The data layer is shared (`packages/observability/live_log.py`): the standalone
+service (`apps/logs`, `/` + `/saglik` + `/ham`) and the API endpoints
+(`/api/v1/live/log`, `/api/v1/live/summary`) read the same queries, so the two
+views can never drift. The standalone page can therefore be retired once the
+module is verified — the JSON contracts it served live on in
+`/api/v1/live/summary` (same shape as `/saglik`).
+
+The standalone dashboard exposes the same numbers as JSON at `/saglik`:
 
 | Panel | What it shows |
 |---|---|

@@ -18,6 +18,10 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 - Setup wizard now walks six steps: Admin -> LLM (18 presets) -> Jev (TypeSafe, optional) -> Telegram (optional) -> FLOP registration -> Security secrets; the scheduler image ships `apps/tools/` so registration runs in a one-off container
 - `LUMI_AGENT_DID` / `LUMI_AGENT_NAME` / `TECHNOCORE_KEY_HOST_PATH` env knobs; the program watch reads the DID from `.env` and skips subject-scoped feeds when it is unset (no hardcoded identities anywhere in the repo — tests use synthetic DIDs)
 
+- Live Log module in the web UI: the standalone `apps/logs` page (summary cards, LLM/Jev logs, token spend, market flow, job completion, earnings) now renders as a **Live Log** tab, auto-refreshing every 20 s, backed by `GET /api/v1/live/log` + `GET /api/v1/live/summary`
+- `packages/observability/live_log.py`: single read-only data layer shared by the web UI module, the API endpoints and the standalone page (SELECT only)
+- Web UI: fixed the Trust Center/Command Center crash — `/api/v1/skills` returns `{skills: [...]}` and the UI treated it as a bare array (`O.find is not a function` blanked the whole app)
+
 ### Changed
 - Jev is served from TypeSafe directly (`JEV_BASE_URL=https://api.typesafe.ai/v1`, `JEV_EVAL_PATH=/systemone`, `JEV_MODEL=jev-latest`); the `boolean` question type is normalized to `noul` (the API rejects `boolean` with 400) and per-call cost is estimated from token counts
 - tclk market work is gated to value-bearing rails: `TCLK_AGENT_RAILS` now ships as `flop-htlc` only, so `paper` (simulation) and `x402` offers are skipped at the audit gate — paper deals cannot consume accept quota or concurrency slots

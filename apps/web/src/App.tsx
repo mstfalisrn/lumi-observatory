@@ -20,6 +20,7 @@ import {
   Sparkles,
   ShieldCheck,
   TrendingUp,
+  Activity,
 } from 'lucide-react'
 import { api, openSSE, getToken, setToken, setOnUnauthorized } from './api'
 import type { SSEState } from './api'
@@ -38,6 +39,7 @@ import {
   ReportsPage,
   TclkMarketPage,
   CommandCenter,
+  LiveLogPage,
   LoginPage,
 } from './pages'
 import { Button } from '@/components/ui/button'
@@ -46,7 +48,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 
-type PageKey = 'dashboard' | 'runs' | 'run-detail' | 'approvals' | 'context' | 'memory' | 'sources' | 'agents' | 'tclk' | 'telegram' | 'settings' | 'audit' | 'reports'
+type PageKey = 'dashboard' | 'runs' | 'run-detail' | 'approvals' | 'context' | 'memory' | 'sources' | 'agents' | 'tclk' | 'live' | 'telegram' | 'settings' | 'audit' | 'reports'
 type NavKey = Exclude<PageKey, 'run-detail'>
 
 const NAV: [NavKey, string, React.ElementType][] = [
@@ -58,6 +60,7 @@ const NAV: [NavKey, string, React.ElementType][] = [
   ['sources', 'Sources', Radio],
   ['agents', 'Trust Center', ShieldCheck],
   ['tclk', 'TCLK Market', TrendingUp],
+  ['live', 'Live Log', Activity],
 
   ['telegram', 'Telegram', Send],
   ['settings', 'Settings', Settings],
@@ -453,6 +456,7 @@ export default function App() {
               {tab === 'sources' && <SourcesPage />}
               {tab === 'agents' && <AgentsPage />}
               {tab === 'tclk' && <TclkMarketPage />}
+              {tab === 'live' && <LiveLogPage />}
               {tab === 'telegram' && <TelegramPage />}
               {tab === 'settings' && <SettingsPage />}
               {tab === 'reports' && <ReportsPage />}

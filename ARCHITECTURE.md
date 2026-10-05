@@ -78,6 +78,15 @@ The scheduler works the tclk/1 offer market over technocore.chat. Every offer ru
 
 Accepted deals run end to end: accept → escrow secret derived from the offer id (survives restarts) → heartbeat → exact answer → delivery → on lock, reveal and receipt. The deterministic solver (`apps/scheduler/tclk_solver.py` + `br_fold.py`) answers the exact-answer families — tip, protocol transcript fold, validation, math, `/kv` note, HTTP probe, documentation — and never guesses; the producer model (`tclk_producer.py`) covers the rest. Every decision is persisted to `tclk_offer_audits` with its checks and outcome. Rails are the money question: the default is `flop-htlc`; the judged-program profile (`flop-htlc,paper` + amount cap) serves the funded judged programs that pay in FLOP on the paper rail until the value escrow exists.
 
+## Live Log (shared data layer)
+`packages/observability/live_log.py` holds the read-only queries behind the live
+log — LLM/Jev decisions (`agent_evaluations`, `tclk_offer_audits`), LLM token
+spend (`llm_usage`), market flow, job completion and earnings frames. Three
+consumers share it: the web UI's **Live Log** tab (`GET /api/v1/live/log`),
+the machine contract `GET /api/v1/live/summary` (same shape as the standalone
+`/saglik`), and the optional standalone page in `apps/logs` (`/`, `/saglik`,
+`/ham`). SELECT only; it writes to no table.
+
 ## Earning Loops
 Standalone loops in `apps/earn/`, runnable as host services or containers:
 

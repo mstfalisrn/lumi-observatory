@@ -10,6 +10,10 @@ RUN pip install --no-cache-dir "psycopg[binary]==3.2.3"
 
 WORKDIR /app
 COPY apps/logs/app.py /app/app.py
+# the shared data layer (same file the API image carries)
+COPY packages/observability/__init__.py /app/packages/observability/__init__.py
+COPY packages/observability/live_log.py /app/packages/observability/live_log.py
+ENV PYTHONPATH=/app/packages
 
 EXPOSE 8000
 CMD ["python", "app.py"]

@@ -1072,6 +1072,28 @@ async def tclk_market(user: dict = Depends(get_current_user)):
         }
 
 
+@app.get("/api/v1/live/log")
+def live_log(user: dict = Depends(get_current_user)):
+    """Live log module — the same read-only view as the standalone logs page.
+
+    LLM + Jev decisions, market offer flow, job completion and earnings, in one
+    payload (sync endpoint: psycopg runs in the threadpool). Read-only, SELECT only.
+    """
+    _ = user
+    from observability.live_log import collect, page_payload
+
+    return page_payload(collect())
+
+
+@app.get("/api/v1/live/summary")
+def live_summary(user: dict = Depends(get_current_user)):
+    """Machine contract of the live log (same shape as the standalone /saglik)."""
+    _ = user
+    from observability.live_log import collect, json_summary
+
+    return json_summary(collect())
+
+
 @app.get("/api/v1/jev/stats")
 async def jev_stats(user: dict = Depends(get_current_user)):
     """Jev decision layer: config flags + this container's live counters."""
