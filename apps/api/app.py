@@ -1336,7 +1336,8 @@ async def jev_selfcheck(user: dict = Depends(require_role("operator"))):
             purpose="selfcheck",
         )
     except _jev.JevUnavailable as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
+        log.warning("jev selfcheck failed: %s", exc)
+        return JSONResponse({"ok": False, "error": "jev unavailable - see server logs"}, status_code=503)
     return {
         "ok": True,
         "model": res.model,
@@ -1389,6 +1390,9 @@ async def test_llm_settings(req: LLMTestRequest, user: dict = Depends(get_curren
             # try live ping with small payload; fail -> return ok false with detail
             try:
                 import httpx
+
+                from connectors import ssrf as _ssrf
+
                 ping_url = url.rstrip("/") + "/chat/completions"
                 headers = {}
                 if req.api_key:
@@ -1398,7 +1402,16 @@ async def test_llm_settings(req: LLMTestRequest, user: dict = Depends(get_curren
                     "messages": [{"role": "user", "content": "ping"}],
                     "max_tokens": 5,
                 }
-                async with httpx.AsyncClient(timeout=6.0) as client:
+                client_kwargs: dict = {"timeout": 6.0}
+                if settings.is_production:
+                    # The URL passed the SSRF checks above; re-validate and pin
+                    # the TCP connection to the validated address (a second DNS
+                    # answer cannot move the socket).
+                    _ssrf.validate_url(ping_url)
+                    transport = httpx.AsyncHTTPTransport()
+                    _ssrf.pin_transport_backend(transport)
+                    client_kwargs["transport"] = transport
+                async with httpx.AsyncClient(**client_kwargs) as client:
                     resp = await client.post(ping_url, json=payload, headers=headers)
                     # 401 means key invalid but endpoint reachable
                     if resp.status_code == 401:
@@ -1410,8 +1423,10 @@ async def test_llm_settings(req: LLMTestRequest, user: dict = Depends(get_curren
             except HTTPException:
                 raise
             except Exception as e:
-                # network failure -> report but don't raise 500
-                return {"ok": False, "provider": prov_norm, "detail": f"connection failed: {type(e).__name__}: {str(e)[:200]}"}
+                # network failure -> report but don't raise 500; details stay
+                # in the server log, raw exception text never reaches clients
+                log.warning("llm test ping failed: %s", e)
+                return {"ok": False, "provider": prov_norm, "detail": f"connection failed: {type(e).__name__} (see server logs)"}
         # no url -> only format check
         if not url:
             raise HTTPException(400, "base_url required")
@@ -1714,18 +1729,19 @@ async def agent_evaluations(
 
 @app.get("/assets/{path:path}")
 async def assets(path: str):
-    import os as _os
+    from pathlib import Path
 
     from fastapi.responses import FileResponse
+
     for base in ("apps/web/dist", "/srv/lumi/apps/web/dist"):
-        assets_root = _os.path.realpath(_os.path.join(base, "assets"))
-        candidate = _os.path.realpath(_os.path.join(assets_root, path))
+        assets_root = (Path(base) / "assets").resolve()
+        candidate = (assets_root / path).resolve()
         # Containment: the resolved path must stay inside the assets root.
         # Blocks ../ traversal and symlink escapes (fail closed → 404).
-        if candidate != assets_root and not candidate.startswith(assets_root + _os.sep):
+        if not candidate.is_relative_to(assets_root):
             continue
-        if _os.path.isfile(candidate):
-            return FileResponse(candidate)
+        if candidate.is_file():
+            return FileResponse(str(candidate))
     raise HTTPException(404)
 
 
@@ -1750,7 +1766,7 @@ async def root_static(filename: str):
     if filename not in allowed:
         raise HTTPException(404)
     for base in ("apps/web/dist", "/srv/lumi/apps/web/dist"):
-        p = f"{base}/{filename}"
-        if _os.path.exists(p):
+        p = _os.path.join(base, filename)
+        if _os.path.isfile(p):
             return FileResponse(p, headers={"Cache-Control": "public, max-age=86400"})
     raise HTTPException(404)
