@@ -91,6 +91,21 @@ jobs:
           fetch-depth: 0   # full history: the scan walks every ref
       - name: Run history-aware secret scan
         run: ./scripts/secret-scan.sh . --history
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit
+        run: pip install pip-audit
+      - name: Audit pinned dependencies
+        run: |
+          pip-audit -r packages/requirements-api.txt
+          pip-audit -r packages/requirements-worker.txt
+          pip-audit -r packages/requirements-scheduler.txt
+          pip-audit -r packages/requirements-dev.txt
   compose-config:
     runs-on: ubuntu-latest
     steps:
