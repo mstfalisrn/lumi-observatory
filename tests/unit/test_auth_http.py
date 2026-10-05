@@ -38,12 +38,54 @@ async def test_get_current_user_expired_token():
 
 
 @pytest.mark.asyncio
-async def test_get_current_user_valid_token():
-    token = create_session_token("u1", "admin")
+async def test_get_current_user_valid_token(monkeypatch):
+    # A signed JWT alone is not a session any more: the account must exist and
+    # be active, and the token version must match (G06). "u1" style subjects
+    # without a backing row are rejected — build a real user.
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    import observability.db as db_mod
+    from observability import models
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(models.Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(db_mod, "async_session_factory", factory)
+
+    async with factory() as s:
+        u = models.User(username="u1@example.com", display_name="u", role="admin",
+                        is_active=True, password_hash="x")
+        s.add(u)
+        await s.commit()
+        uid = str(u.id)
+
+    token = create_session_token(uid, "admin", token_version=0)
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
     user = await get_current_user(creds)
-    assert user["user_id"] == "u1"
+    assert user["user_id"] == uid
     assert user["role"] == "admin"
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_unknown_subject_rejected(monkeypatch):
+    # valid signature, but no such account: rejected rather than trusted
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    import observability.db as db_mod
+    from observability import models
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(models.Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(db_mod, "async_session_factory", factory)
+
+    token = create_session_token("00000000-0000-0000-0000-000000000000", "admin")
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    with pytest.raises(HTTPException) as e:
+        await get_current_user(creds)
+    assert e.value.status_code == 401
 
 
 # ---------------------------------------------------------------------------

@@ -51,11 +51,21 @@ async def test_change_password_endpoint_flow(monkeypatch):
                               json={"current_password": "old-pass-123", "new_password": "old-pass-123"},
                               headers=headers)
         assert r.status_code == 400
-        # happy path
+        # happy path — the response carries a replacement token (sessions are
+        # versioned, so the old token is revoked the moment the password changes)
         r = await client.post("/api/v1/auth/change-password",
                               json={"current_password": "old-pass-123", "new_password": "new-pass-456"},
                               headers=headers)
-        assert r.status_code == 200 and r.json() == {"ok": True}
+        assert r.status_code == 200
+        body = r.json()
+        assert body.get("ok") is True and body.get("token")
+        r_old = await client.get("/api/v1/auth/me", headers=headers)
+        assert r_old.status_code == 401
+        r_new = await client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {body['token']}"},
+        )
+        assert r_new.status_code == 200
 
         # DB really changed
         async with factory() as s:

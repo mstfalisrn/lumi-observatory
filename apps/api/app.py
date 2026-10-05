@@ -68,7 +68,8 @@ async def _sync_admin_password(s, env_hash: str) -> None:
         return  # env unchanged since the last apply — keep the current DB value
     if u.password_hash != env_hash:
         u.password_hash = env_hash
-        log.info("admin password applied from ADMIN_PASSWORD_HASH")
+        u.token_version = int(u.token_version or 0) + 1  # revoke outstanding sessions
+        log.info("admin password applied from ADMIN_PASSWORD_HASH (sessions revoked)")
     _record_env_applied(s, applied, env_hash)
     await s.commit()
 
@@ -121,6 +122,76 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Cf-Access-Jwt-Assertion", "X-Telegram-Bot-Api-Secret-Token"],
 )
+
+
+_BODY_TOO_LARGE = b'{"detail":"request body too large"}'
+
+
+class BodySizeLimitMiddleware:
+    """Hard byte cap on request bodies — chunked bodies included.
+
+    The header check in the HTTP middleware is a fast path only; a client that
+    streams the body (or omits Content-Length) would bypass it. Raising from
+    receive() cannot yield a 413 either — FastAPI converts any body-read
+    exception into a 400 — so this wrapper buffers the body up to the cap and
+    answers 413 itself once the cap is exceeded. The limit therefore also
+    covers routes that return early (login, webhooks).
+    """
+
+    def __init__(self, app, max_bytes: int):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        body = bytearray()
+        too_large = False
+        disconnected = False
+        while True:
+            message = await receive()
+            mtype = message["type"]
+            if mtype == "http.disconnect":
+                disconnected = True
+                break
+            if mtype != "http.request":
+                break
+            body.extend(message.get("body", b""))
+            if len(body) > self.max_bytes:
+                too_large = True
+                break
+            if not message.get("more_body", False):
+                break
+
+        if too_large:
+            await send({
+                "type": "http.response.start",
+                "status": 413,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(_BODY_TOO_LARGE)).encode()),
+                ],
+            })
+            await send({"type": "http.response.body", "body": _BODY_TOO_LARGE})
+            return
+
+        replay_done = False
+
+        async def replay_receive():
+            nonlocal replay_done
+            if not replay_done:
+                replay_done = True
+                if disconnected:
+                    return {"type": "http.disconnect"}
+                return {"type": "http.request", "body": bytes(body), "more_body": False}
+            return await receive()
+
+        await self.app(scope, replay_receive, send)
+
+
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.MAX_REQUEST_BODY_BYTES)
 
 # --- Local auth (no Cloudflare Access) + rate limit + body size ---
 from observability.auth import (
@@ -244,13 +315,36 @@ async def login(req: LoginRequest, request: Request):
         u = res.scalar_one_or_none()
         if u is None or not u.is_active or not u.password_hash or not verify_password(req.password, u.password_hash):
             raise HTTPException(401, "invalid email or password")
-        token = create_session_token(str(u.id), u.role, settings.SESSION_TTL_SECONDS)
+        token = create_session_token(str(u.id), u.role, settings.SESSION_TTL_SECONDS, u.token_version)
         resp = JSONResponse({"token": token, "role": u.role, "email": u.username, "display_name": u.display_name})
         return resp
 
 
 @app.post("/api/v1/auth/logout")
-async def logout():
+async def logout(user: dict = Depends(get_current_user)):
+    """Revoke the account's issued session tokens (logout everywhere).
+
+    Sessions are stateless JWTs; they carry the account's token_version.
+    Bumping it invalidates every token issued before this call, so a copied
+    token cannot outlive the logout.
+    """
+    uid = str(user.get("user_id") or "")
+    async with async_session_factory() as s:
+        u = await s.get(models.User, uuid.UUID(uid))
+        if u is not None:
+            u.token_version = int(u.token_version or 0) + 1
+            actor, actor_id = _audit_actor(user)
+            s.add(
+                models.AuditEvent(
+                    actor=actor,
+                    actor_user_id=actor_id,
+                    action="auth.logout",
+                    resource_type="user",
+                    resource_id=str(u.id),
+                    detail={"scope": "all-sessions"},
+                )
+            )
+            await s.commit()
     resp = JSONResponse({"ok": True})
     resp.delete_cookie("lumi_session", path="/")
     return resp
@@ -282,6 +376,8 @@ async def change_password(req: ChangePasswordRequest, user: dict = Depends(get_c
         if u is None or not u.is_active or not verify_password(req.current_password, u.password_hash):
             raise HTTPException(401, "current password is not correct")
         u.password_hash = hash_password(req.new_password)
+        new_version = int(u.token_version or 0) + 1
+        u.token_version = new_version  # revoke every previously issued token
         actor, actor_id = _audit_actor(user)
         s.add(
             models.AuditEvent(
@@ -294,7 +390,10 @@ async def change_password(req: ChangePasswordRequest, user: dict = Depends(get_c
             )
         )
         await s.commit()
-    return {"ok": True}
+    # Replace the caller's own token so this tab stays signed in; every other
+    # token issued before the change is now revoked.
+    fresh = create_session_token(uid, str(user.get("role") or "admin"), settings.SESSION_TTL_SECONDS, new_version)
+    return {"ok": True, "token": fresh}
 
 
 @app.get("/api/v1/auth/status")
@@ -306,9 +405,12 @@ async def auth_status():
 
 @app.get("/api/v1/auth/me")
 async def auth_me(user: dict = Depends(get_current_user)):
+    try:
+        user_key = uuid.UUID(str(user.get("user_id") or ""))
+    except (TypeError, ValueError):
+        raise HTTPException(401, "invalid session") from None
     async with async_session_factory() as s:
-        res = await s.execute(select(models.User).where(models.User.id == user["user_id"]))
-        u = res.scalar_one_or_none()
+        u = await s.get(models.User, user_key)
     if u is None:
         raise HTTPException(404, "user not found")
     return {"user_id": str(u.id), "username": u.username, "role": u.role,
@@ -1378,19 +1480,14 @@ async def _fetch_sse_events(after_seq: int, limit: int = 50) -> list:
 @app.get("/api/v1/events/stream")
 async def events_stream(request: Request):
     # auth: Bearer-only (query ?token removed, cookie fallback removed — prevents URL/log leakage; web fetch sends Authorization)
-    from observability.auth import decode_session_token
+    from observability.auth import resolve_session
     token = None
     auth_h = request.headers.get("Authorization", "")
     if auth_h.startswith("Bearer "):
         token = auth_h[7:].strip()
     if not token:
         raise HTTPException(401, "authentication required")
-    try:
-        payload = decode_session_token(token)
-        user = {"user_id": payload.get("sub"), "role": payload.get("role", "viewer")}
-    except Exception:
-        raise HTTPException(401, "invalid session token") from None
-    _ = user  # auth passed
+    await resolve_session(token)  # signature + live account state (revocation-aware)
     last_seq = _parse_sse_cursor(request)
 
     async def gen():

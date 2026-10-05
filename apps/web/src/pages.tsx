@@ -1071,7 +1071,8 @@ export function SettingsPage() {
     if (newPw !== newPw2) { setPwMsg('⚠ new passwords do not match'); return }
     setPwBusy(true)
     try {
-      await api('/v1/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password: curPw, new_password: newPw }) })
+      const r = await api<{ token?: string }>('/v1/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password: curPw, new_password: newPw }) })
+      if (r?.token) setToken(r.token)  // tokens are versioned — keep this tab signed in
       setPwMsg('✓ Password updated'); setCurPw(''); setNewPw(''); setNewPw2('')
     } catch (error) { setPwMsg('⚠ ' + errMsg(error)) } finally { setPwBusy(false) }
   }

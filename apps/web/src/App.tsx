@@ -187,6 +187,8 @@ export default function App() {
   }, [session])
 
   function logout() {
+    // revoke on the server too (best-effort; the UI clears regardless)
+    api('/v1/auth/logout', { method: 'POST' }).catch(() => {})
     setToken('')
     setSession(null)
     setTab('dashboard')

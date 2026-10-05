@@ -130,6 +130,10 @@ class User(_UUIDMixin, _TimestampMixin, Base):
     role: Mapped[str] = mapped_column(String(40), nullable=False, default="admin")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    # Session revocation epoch: every session JWT carries `ver`; bumping this
+    # column (logout, password change, env password reset) invalidates all
+    # tokens issued before the bump.
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     telegram_identities: Mapped[list[TelegramIdentity]] = relationship(back_populates="user")
 
 

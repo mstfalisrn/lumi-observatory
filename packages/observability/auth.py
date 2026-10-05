@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 
 from observability.config import settings
 
@@ -46,11 +47,14 @@ def verify_password(password: str, stored: str) -> bool:
 # ---------------------------------------------------------------------------
 # Session JWT
 # ---------------------------------------------------------------------------
-def create_session_token(user_id: str, role: str, expires_seconds: int = 12 * 3600) -> str:
+def create_session_token(
+    user_id: str, role: str, expires_seconds: int = 12 * 3600, token_version: int = 0
+) -> str:
     now = datetime.now(UTC)
     payload = {
         "sub": user_id,
         "role": role,
+        "ver": int(token_version),
         "iat": now,
         "exp": now + timedelta(seconds=expires_seconds),
         "jti": uuid.uuid4().hex,
@@ -62,6 +66,46 @@ def create_session_token(user_id: str, role: str, expires_seconds: int = 12 * 36
 def decode_session_token(token: str) -> dict:
     # signature + exp + iss are verified; invalid token raises
     return jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"], issuer="lumi-observatory")
+
+
+async def resolve_session(token: str) -> dict:
+    """Decode a session token and verify it against LIVE account state.
+
+    A signed JWT alone is not a session: the account must still exist and be
+    active, and the token's `ver` must match the account's current
+    `token_version` — so logout, password change, role edits and deactivation
+    take effect on the next request instead of at token expiry. Raises 401.
+    """
+    try:
+        payload = decode_session_token(token)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "session expired") from None
+    except Exception:
+        raise HTTPException(401, "invalid session token") from None
+    return await _verify_live_session(payload)
+
+
+async def _verify_live_session(payload: dict) -> dict:
+    from observability.db import async_session_factory
+    from observability.models import User
+
+    sub = str(payload.get("sub") or "")
+    try:
+        user_uuid = uuid.UUID(sub)
+    except (TypeError, ValueError):
+        raise HTTPException(401, "invalid session token") from None
+    async with async_session_factory() as s:
+        user = (await s.execute(select(User).where(User.id == user_uuid))).scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(401, "session revoked")
+    if int(payload.get("ver", 0)) != int(user.token_version or 0):
+        raise HTTPException(401, "session revoked")
+    return {
+        "user_id": str(user.id),
+        "role": user.role,
+        "username": user.username,
+        "display_name": user.display_name,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -76,24 +120,12 @@ def _resolve_user_id_from_email(email: str) -> str | None:
 async def get_current_user(
     creds: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict:
+    # Bearer-only: no cookie fallback, no ?token query (URL/log leakage).
+    # The SSE endpoint resolves the same Authorization header via resolve_session.
     token = creds.credentials if creds and creds.credentials else None
-    # SSE manual auth: Bearer-only; due to EventSource native header restriction
-    # /api/v1/events/stream endpoint manually resolves the Authorization header (decode_session_token).
-    # Cookie fallback intentionally absent — query ?token and cookie leakage/URL log risk
-    # removed to prevent; web fetch sends Authorization. This dependency
-    # no cookie fallback attempt is made for this.
-    if not token:
-        # no cookie fallback — SSE Bearer-only; this is a general dependency, there is a separate manual resolution for SSE
-        pass
     if not token:
         raise HTTPException(401, "authentication required")
-    try:
-        payload = decode_session_token(token)
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(401, "session expired") from None
-    except Exception:
-        raise HTTPException(401, "invalid session token") from None
-    return {"user_id": payload.get("sub"), "role": payload.get("role", "viewer")}
+    return await resolve_session(token)
 
 
 def require_role(min_role: str):
