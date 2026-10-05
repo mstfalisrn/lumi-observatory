@@ -5,7 +5,7 @@ import json
 
 import httpx
 
-from connectors.ssrf import resolve_redirect_url, validate_url
+from connectors.ssrf import pin_transport_backend, resolve_redirect_url, validate_url
 
 _ALLOWED_CONTENT_TYPES = {"application/json", "application/vnd.api+json", "application/ld+json"}
 _TEXT_FALLBACK_TYPES = {"text/plain", "text/markdown", "text/x-markdown", "application/octet-stream"}
@@ -20,6 +20,9 @@ class HttpJsonConnector:
         self._client = httpx.AsyncClient(
             timeout=20.0, follow_redirects=False, max_redirects=max_redirects
         )
+        # The validated address is what actually gets connected to (G05):
+        # pin the transport's TCP destination to the SSRF-checked IP.
+        pin_transport_backend(self._client._transport)
         self._closed = False
 
     async def get_json(self, url: str) -> dict:

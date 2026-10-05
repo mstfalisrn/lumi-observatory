@@ -1,13 +1,17 @@
 # LUMI — SSRF protection
 # Loopback, RFC1918, link-local, metadata IP, multicast, reserved, unspecified,
-# Blocks IPv4-mapped IPv6 access. After DNS resolution and every redirect
-# IP is reclassified. TOCTOU is prevented with DNS pin.
+# Blocks IPv4-mapped IPv6 access. After DNS resolution and every redirect the
+# resolved addresses are reclassified, and PinnedNetworkBackend then
+# TCP-connects to the validated address — the pin is enforced on the socket
+# itself, not merely cached (no second DNS answer can move the connection).
 from __future__ import annotations
 
 import ipaddress
 import socket
 import time
 from urllib.parse import urljoin, urlparse
+
+import httpcore
 
 _BLOCKED_NETWORKS = [
     "127.0.0.0/8",
@@ -135,6 +139,50 @@ def validate_host(host: str, allowed_hosts: set[str] | None = None) -> None:
     for ip in resolve_all(host):
         if ip_is_blocked(ip):
             raise SSRFError(f"bloklu IP (RFC1918/loopback/metadata): {ip}")
+
+
+class PinnedNetworkBackend(httpcore.AnyIOBackend):
+    """httpcore network backend that TCP-connects to the SSRF-validated IP.
+
+    The URL keeps the hostname, so Host header, TLS SNI and certificate
+    verification still use the real name (httpcore passes the origin host to
+    start_tls); only the socket destination is pinned to an address that
+    passed `validate_host`. Fail-closed: if no allowed address exists for the
+    host, the connection is refused instead of falling back to an OS lookup.
+    """
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options=None,
+    ):
+        try:
+            ips = [ip for ip in resolve_all(host) if not ip_is_blocked(ip)]
+        except SSRFError:
+            ips = []
+        if not ips:
+            raise SSRFError(f"no allowed address for host: {host}")
+        return await super().connect_tcp(
+            ips[0],
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+
+def pin_transport_backend(transport) -> None:
+    """Point an httpx.AsyncHTTPTransport's pool at the pinned backend.
+
+    httpx does not expose httpcore's ``network_backend`` parameter, so the pool
+    attribute is swapped directly; httpcore passes ``network_backend`` to every
+    connection it creates afterwards, which makes this take effect for all
+    subsequent requests on the transport.
+    """
+    transport._pool._network_backend = PinnedNetworkBackend()
 
 
 def validate_url(url: str, allowed_hosts: set[str] | None = None) -> str:
