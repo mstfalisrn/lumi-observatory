@@ -246,24 +246,34 @@ async def main_async(args: argparse.Namespace) -> int:
     print(f"DID={did}")
     print(f"KEY={path or key_path} ({'generated' if generated else 'loaded'})")
 
+    NOTE_VERIFIED = {"exists", "published"}
+
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         status, detail = await register_note(client, did, args.name, force=args.force_note)
         print(f"NOTE={status}: {detail}")
-        if status in ("failed", "conflict"):
+        if status not in NOTE_VERIFIED:
+            # no note, foreign note, or a write we could not read back — this is
+            # NOT a registration; the caller must not report success
+            print(f"OUTCOME=note-{status}")
             await connector.aclose()
             return 1
 
         if args.no_faucet:
             print("FAUCET=skipped (--no-faucet)")
+            fstatus = "skipped"
         else:
             fstatus, fdetail = await claim_faucet(client, connector, did, wait_s=args.wait)
             print(f"FAUCET={fstatus}: {fdetail}")
-            if fstatus == "rate-limited":
-                await connector.aclose()
-                return 3
 
     print("NEXT=set LUMI_AGENT_DID in .env (the wizard does this automatically) and start the stack")
     await connector.aclose()
+    if fstatus == "rate-limited":
+        print("OUTCOME=registered-faucet-wait")
+        return 3
+    if fstatus == "failed":
+        print("OUTCOME=registered-faucet-failed")
+        return 4
+    print("OUTCOME=registered")
     return 0
 
 

@@ -125,8 +125,10 @@ class Worker:
         self.st.setdefault("accepts", [])
         self.offer_cache: dict[str, dict] = self.st["offers"]  # same object as state, so it persists
         self.pending: dict[str, dict] = {}  # contract -> {preimage, room, ref, answer, phase}
+        self.st.setdefault("pending", {})  # non-secret recovery record per contract
         self._connector = None
         self._seed = None
+        self._recover_pending()
 
     # ---- signing -----------------------------------------------------------
     def connector(self):
@@ -135,6 +137,41 @@ class Worker:
 
             self._connector = make_connector()
         return self._connector
+
+    def _recover_pending(self) -> None:
+        """Restart recovery: rebuild in-memory pending deals from the state file.
+
+        Only non-secret fields are persisted (offer id, room, payer, rails,
+        amount, asset, phase). The claim preimage is re-derived from the offer
+        id, so a restart between delivery and the payer's lock no longer loses
+        the deal — the lock still finds its pending record and the reveal
+        fires. Only `delivered` records are recovered: an accepted-but-not-
+        delivered deal is left alone (re-delivery could duplicate work).
+        """
+        for contract, rec in (self.st.get("pending") or {}).items():
+            if str(rec.get("phase") or "") != "delivered":
+                continue
+            oid = str(rec.get("oid") or "")
+            if not oid:
+                continue
+            try:
+                from connectors.tclk import derived_hashlock
+
+                preimage, _statement = derived_hashlock(oid, self.seed())
+            except Exception as e:
+                log(f"recovery: preimage underivable for {contract[:18]} ({type(e).__name__})")
+                continue
+            restored = {
+                "preimage": preimage,
+                "phase": "delivered",
+                "ref": oid,
+                "room": str(rec.get("room") or ""),
+            }
+            for key in ("payer", "rails", "amount", "asset"):
+                if rec.get(key):
+                    restored[key] = rec[key]
+            self.pending[contract] = restored
+            log(f"recovered pending {contract[:18]} (offer {oid[:14]}) — awaiting lock")
 
     def seed(self) -> bytes:
         if self._seed is None:
@@ -287,10 +324,22 @@ class Worker:
             "amount": frame.get("amount"),
             "asset": frame.get("asset"),
         }
+        # non-secret recovery record (no preimage on disk — see _recover_pending)
+        self.st["pending"][contract] = {
+            "oid": oid,
+            "room": room,
+            "phase": "accepted",
+            "payer": self.pending[contract]["payer"],
+            "rails": self.pending[contract]["rails"],
+            "amount": frame.get("amount"),
+            "asset": frame.get("asset"),
+        }
         try:
             await c.signed_post(room, build_heartbeat(sender=sender, contract=contract, nonce=new_nonce(), note="lumi blockrewards worker"))
             await c.signed_post(room, build_delivery(contract=contract, body=answer))
             self.pending[contract]["phase"] = "delivered"
+            if contract in self.st.get("pending", {}):
+                self.st["pending"][contract]["phase"] = "delivered"
             self.st["done"][oid] = {"family": task["family"], "answer": answer[:200], "contract": contract, "at": time.time()}
             log(f"DELIVERED {contract[:18]} → {room}")
         except Exception as e:
@@ -341,6 +390,8 @@ class Worker:
         try:
             await c.signed_post(p["room"], build_reveal(str(p["preimage"])))
             p["phase"] = "revealed"
+            if contract in self.st.get("pending", {}):
+                self.st["pending"][contract]["phase"] = "revealed"
             log(f"REVEAL posted {contract[:18]} (claim)")
         except Exception as e:
             log(f"reveal failed {type(e).__name__}: {str(e)[:120]}")

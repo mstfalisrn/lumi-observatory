@@ -559,24 +559,42 @@ else
     echo -e "${CYAN}→ building the scheduler image (carries the registration tool)…${RESET}"
     docker compose build lumi-scheduler
     echo -e "${CYAN}→ registering on technocore.chat…${RESET}"
+    set +e
     REG_OUT="$(docker compose run --rm --no-deps -v "$ROOT/secrets:/secrets" lumi-scheduler \
-      python apps/tools/flop_register.py --key-path /secrets/did.ed25519 --name "$IN_NAME" 2>&1 || true)"
-    printf '%s\n' "$REG_OUT" | sed -n 's/^\(DID=\|KEY=\|NOTE=\|FAUCET=\|NEXT=\|KEY=placeholder\)/  \1/p'
+      python apps/tools/flop_register.py --key-path /secrets/did.ed25519 --name "$IN_NAME" 2>&1)"
+    REG_RC=$?
+    set -e
+    printf '%s\n' "$REG_OUT" | sed -n 's/^\(DID=\|KEY=\|NOTE=\|FAUCET=\|NEXT=\|OUTCOME=\|KEY=placeholder\)/  \1/p'
     REG_DID="$(printf '%s\n' "$REG_OUT" | sed -n 's/^DID=//p' | head -1)"
-    if [ -n "$REG_DID" ]; then
+    REG_OUTCOME="$(printf '%s\n' "$REG_OUT" | sed -n 's/^OUTCOME=//p' | head -1)"
+    # success requires: a DID AND the tool confirming a verified note (exit code
+    # 0/3/4 — 3/4 mean the note is verified but the faucet needs attention).
+    if [ -n "$REG_DID" ] && { [ "$REG_RC" = "0" ] || [ "$REG_RC" = "3" ] || [ "$REG_RC" = "4" ]; }; then
       set_env_val "LUMI_AGENT_DID" "$REG_DID"
       set_env_val "LUMI_AGENT_NAME" "$IN_NAME"
       set_env_val "TECHNOCORE_KEY_HOST_PATH" "./secrets/did.ed25519"
       set_env_val "TECHNOCORE_BASE_URL" "https://technocore.chat"
       set_env_val "TECHNOCORE_ENABLED" "true"
       set_env_val "TCLK_ENABLED" "true"
-      # the key file is read by the containers (uid 10001) and by root
-      chown root:10001 secrets/did.ed25519 2>/dev/null || true
+      # access model: the key file is read by the containers (uid 10001 via the
+      # gid) and by root — 0640 root:10001. A plain `chmod 600` would lock the
+      # containers out of the bind mount.
+      if ! chown root:10001 secrets/did.ed25519 2>/dev/null; then
+        echo -e "${YELLOW}  ⚠ could not chown the key to root:10001 — containers may not read it${RESET}"
+      fi
       chmod 640 secrets/did.ed25519 2>/dev/null || true
-      echo -e "${GREEN}✓ Registered — DID written to .env${RESET}"
+      case "$REG_OUTCOME" in
+        registered-faucet-wait)
+          echo -e "${GREEN}✓ Registered — DID written to .env${RESET} ${DIM}(faucet drip is rate-limited right now; it will arrive on the next claim)${RESET}" ;;
+        registered-faucet-failed)
+          echo -e "${GREEN}✓ Registered — DID written to .env${RESET} ${YELLOW}(faucet claim failed — re-run --check later)${RESET}" ;;
+        *)
+          echo -e "${GREEN}✓ Registered — DID written to .env${RESET}" ;;
+      esac
     else
-      echo -e "${YELLOW}  Registration did not complete (offline?). Re-run later:${RESET}"
-      echo -e "${DIM}  ./scripts/setup.sh --reconfigure  →  Step 5${RESET}"
+      echo -e "${YELLOW}  Registration did NOT complete — no verified identity note (offline, conflict, or unverified write).${RESET}"
+      echo -e "${DIM}  Re-run later: ./scripts/setup.sh --reconfigure  →  Step 5${RESET}"
+      echo -e "${DIM}  Note: the agent DID is NOT written to .env until the note verifies.${RESET}"
     fi
   else
     echo -e "${DIM}  Skipped — register later via ./scripts/setup.sh --reconfigure${RESET}"
