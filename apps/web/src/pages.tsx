@@ -1067,12 +1067,12 @@ export function SettingsPage() {
   const [pwBusy, setPwBusy] = useState(false)
   async function changePw(e: React.FormEvent) {
     e.preventDefault(); setPwMsg('')
-    if (newPw.length < 8) { setPwMsg('⚠ yeni şifre en az 8 karakter olmalı'); return }
-    if (newPw !== newPw2) { setPwMsg('⚠ yeni şifreler eşleşmiyor'); return }
+    if (newPw.length < 8) { setPwMsg('⚠ new password must be at least 8 characters'); return }
+    if (newPw !== newPw2) { setPwMsg('⚠ new passwords do not match'); return }
     setPwBusy(true)
     try {
       await api('/v1/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password: curPw, new_password: newPw }) })
-      setPwMsg('✓ Şifre güncellendi'); setCurPw(''); setNewPw(''); setNewPw2('')
+      setPwMsg('✓ Password updated'); setCurPw(''); setNewPw(''); setNewPw2('')
     } catch (error) { setPwMsg('⚠ ' + errMsg(error)) } finally { setPwBusy(false) }
   }
   if (loading) return <div className="space-y-5"><h1 className="text-xl font-bold tracking-tight">⚙️ Settings</h1><TableSkeleton rows={3}/></div>
@@ -1098,15 +1098,15 @@ export function SettingsPage() {
       <Card className="border-white/10 bg-white/40 backdrop-blur-sm dark:bg-white/[0.02]">
         <CardContent className="space-y-3 p-5">
           <div>
-            <h3 className="text-sm font-bold tracking-tight flex items-center gap-2"><KeyRound className="h-4 w-4 text-muted-foreground" /> Şifre değiştir</h3>
-            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">Giriş şifreni buradan güncelle. Yeni şifre kalıcıdır — kurulum sihirbazının .env değeri yalnızca kendisi değiştiğinde yeniden uygulanır.</p>
+            <h3 className="text-sm font-bold tracking-tight flex items-center gap-2"><KeyRound className="h-4 w-4 text-muted-foreground" /> Change password</h3>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">Update your sign-in password here. The new password is permanent — the setup wizard's .env value only re-applies when the value itself changes.</p>
           </div>
           <form className="space-y-2.5" onSubmit={changePw}>
-            <Input type="password" autoComplete="current-password" placeholder="Mevcut şifre" value={curPw} onChange={e=>setCurPw(e.target.value)} />
-            <Input type="password" autoComplete="new-password" placeholder="Yeni şifre (en az 8 karakter)" value={newPw} onChange={e=>setNewPw(e.target.value)} />
-            <Input type="password" autoComplete="new-password" placeholder="Yeni şifre (tekrar)" value={newPw2} onChange={e=>setNewPw2(e.target.value)} />
+            <Input type="password" autoComplete="current-password" placeholder="Current password" value={curPw} onChange={e=>setCurPw(e.target.value)} />
+            <Input type="password" autoComplete="new-password" placeholder="New password (at least 8 characters)" value={newPw} onChange={e=>setNewPw(e.target.value)} />
+            <Input type="password" autoComplete="new-password" placeholder="New password (repeat)" value={newPw2} onChange={e=>setNewPw2(e.target.value)} />
             <div className="flex items-center gap-3">
-              <Button type="submit" size="sm" className="rounded-xl" disabled={pwBusy || !curPw || !newPw}>{pwBusy ? 'Kaydediliyor…' : 'Şifreyi güncelle'}</Button>
+              <Button type="submit" size="sm" className="rounded-xl" disabled={pwBusy || !curPw || !newPw}>{pwBusy ? 'Saving…' : 'Update password'}</Button>
               {pwMsg && <span className={`text-xs font-medium ${pwMsg.startsWith('✓') ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{pwMsg}</span>}
             </div>
           </form>
@@ -1402,10 +1402,10 @@ export function TclkMarketPage() {
                     {data.completed_claims.slice(0, 12).map((c) => (
                       <tr key={c.slug} className="border-b last:border-0">
                         <td className="py-2 font-mono text-xs">mb-p-tclk-{c.slug}</td>
-                        <td className="py-2"><Badge variant={c.rail === 'paper' ? 'outline' : c.rail ? 'success' : 'secondary'} className="rounded-full text-[10px]">{c.rail || '(belirtilmemis)'}</Badge></td>
+                        <td className="py-2"><Badge variant={c.rail === 'paper' ? 'outline' : c.rail ? 'success' : 'secondary'} className="rounded-full text-[10px]">{c.rail || '(not specified)'}</Badge></td>
                         <td className="py-2 text-right font-mono text-xs">{c.locks}</td>
                         <td className="py-2 text-right font-mono text-xs">{c.reveals}</td>
-                        <td className="py-2 text-right">{c.rail && c.rail !== 'paper' ? <Badge variant="success" className="rounded-full text-[10px]">PAID</Badge> : <Badge variant="outline" className="rounded-full text-[10px]">prova</Badge>}</td>
+                        <td className="py-2 text-right">{c.rail && c.rail !== 'paper' ? <Badge variant="success" className="rounded-full text-[10px]">PAID</Badge> : <Badge variant="outline" className="rounded-full text-[10px]">sim</Badge>}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1417,21 +1417,21 @@ export function TclkMarketPage() {
           {/* denetim — security audit of the incoming offer stream */}
           <Card className="border-violet-200/60 dark:border-violet-900/40">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Denetim — her gelen teklifin güvenlik denetimi</CardTitle>
+              <CardTitle className="text-sm">Audit — security review of every incoming offer</CardTitle>
               <CardDescription>
-                Deterministik kontroller (imza · rail · tutar · süre) + Jev güvenlik kararı. Denetim kaydı, kabul edilmeyen teklifler için de tutulur.
+                Deterministic checks (signature · rail · amount · expiry) + the Jev safety verdict. The audit record is kept even when an offer is not accepted.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div><div className="text-xs text-muted-foreground font-medium">Denetlenen (24s)</div><div className="text-xl font-bold mt-0.5">{data.audit.audited_24h.toLocaleString('en-US')}</div></div>
-                <div><div className="text-xs text-muted-foreground font-medium">Toplam denetim</div><div className="text-xl font-bold mt-0.5">{data.audit.total.toLocaleString('en-US')}</div></div>
-                <div><div className="text-xs text-muted-foreground font-medium">Kabul</div><div className="text-xl font-bold mt-0.5 text-emerald-600 dark:text-emerald-400">{(data.audit.by_decision.accept || 0).toLocaleString('en-US')}</div></div>
-                <div><div className="text-xs text-muted-foreground font-medium">Ret</div><div className="text-xl font-bold mt-0.5 text-muted-foreground">{(data.audit.by_decision.skip || 0).toLocaleString('en-US')}</div></div>
+                <div><div className="text-xs text-muted-foreground font-medium">Audited (24h)</div><div className="text-xl font-bold mt-0.5">{data.audit.audited_24h.toLocaleString('en-US')}</div></div>
+                <div><div className="text-xs text-muted-foreground font-medium">Total audits</div><div className="text-xl font-bold mt-0.5">{data.audit.total.toLocaleString('en-US')}</div></div>
+                <div><div className="text-xs text-muted-foreground font-medium">Accepted</div><div className="text-xl font-bold mt-0.5 text-emerald-600 dark:text-emerald-400">{(data.audit.by_decision.accept || 0).toLocaleString('en-US')}</div></div>
+                <div><div className="text-xs text-muted-foreground font-medium">Skipped</div><div className="text-xl font-bold mt-0.5 text-muted-foreground">{(data.audit.by_decision.skip || 0).toLocaleString('en-US')}</div></div>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <div className="text-xs font-semibold text-muted-foreground">Risk dağılımı (denetim sonucu)</div>
+                  <div className="text-xs font-semibold text-muted-foreground">Risk distribution (audit outcome)</div>
                   {Object.entries(data.audit.by_risk).sort((a,b)=>b[1]-a[1]).map(([risk, count]) => (
                     <div key={risk} className="flex items-center gap-2 text-sm">
                       <Badge variant={risk === 'safe' ? 'success' : risk === 'watch' ? 'warning' : 'destructive'} className="w-24 justify-center rounded-full text-[10px] uppercase">{risk || '(bos)'}</Badge>
@@ -1440,9 +1440,9 @@ export function TclkMarketPage() {
                   ))}
               </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-semibold text-muted-foreground">Jev güvenlik tier'ı</div>
+                  <div className="text-xs font-semibold text-muted-foreground">Jev safety tier</div>
                   {Object.entries(data.audit.jev_by_tier).length === 0
-                    ? <div className="text-xs text-muted-foreground">henüz Jev kararı yok</div>
+                    ? <div className="text-xs text-muted-foreground">no Jev verdict yet</div>
                     : Object.entries(data.audit.jev_by_tier).sort((a,b)=>b[1]-a[1]).map(([tier, count]) => (
                       <div key={tier} className="flex items-center gap-2 text-sm">
                         <Badge variant={tier === 'SAFE' ? 'success' : tier === 'WATCH' ? 'warning' : 'destructive'} className="w-24 justify-center rounded-full text-[10px] uppercase">{tier || '(bos)'}</Badge>
@@ -1450,7 +1450,7 @@ export function TclkMarketPage() {
                       </div>
                     ))}
                   <div className="pt-1 text-[11px] text-muted-foreground">
-                    tavan <span className="font-mono">{data.audit.min_tier}</span> · spec'siz kabul <span className="font-mono">{data.audit.accept_specless ? 'açık' : 'kapalı'}</span> · saatlik fren <span className="font-mono">{data.audit.accept_per_hour}</span>
+                    ceiling <span className="font-mono">{data.audit.min_tier}</span> · specless accept <span className="font-mono">{data.audit.accept_specless ? 'open' : 'closed'}</span> · hourly throttle <span className="font-mono">{data.audit.accept_per_hour}</span>
                   </div>
                 </div>
               </div>
@@ -1460,12 +1460,12 @@ export function TclkMarketPage() {
                   <table className="w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground border-b">
                       <tr>
-                        <th className="py-2 text-left font-semibold">Zaman</th>
-                        <th className="py-2 text-left font-semibold">Karar</th>
+                        <th className="py-2 text-left font-semibold">Time</th>
+                        <th className="py-2 text-left font-semibold">Decision</th>
                         <th className="py-2 text-left font-semibold">Risk</th>
                         <th className="py-2 text-left font-semibold">Jev</th>
-                        <th className="py-2 text-left font-semibold">Tutar</th>
-                        <th className="py-2 text-left font-semibold">Gerekçe</th>
+                        <th className="py-2 text-left font-semibold">Amount</th>
+                        <th className="py-2 text-left font-semibold">Reason</th>
                         <th className="py-2 text-right font-semibold">seq</th>
                       </tr>
                     </thead>
@@ -1493,7 +1493,7 @@ export function TclkMarketPage() {
             <CardHeader className="pb-2"><CardTitle className="text-sm">Latest frames (masked — secrets never stored)</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground border-b"><tr><th className="py-2 text-left font-semibold">Zaman</th><th className="py-2 text-left font-semibold">Tür</th><th className="py-2 text-left font-semibold">Detay</th><th className="py-2 text-right font-semibold">seq</th></tr></thead>
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground border-b"><tr><th className="py-2 text-left font-semibold">Zaman</th><th className="py-2 text-left font-semibold">Kind</th><th className="py-2 text-left font-semibold">Detail</th><th className="py-2 text-right font-semibold">seq</th></tr></thead>
                 <tbody>
                   {data.recent.map((f) => (
                     <tr key={`${f.room}-${f.seq}`} className="border-b last:border-0">
@@ -1520,13 +1520,13 @@ export function TclkMarketPage() {
 //   (packages/observability/live_log.py) as the standalone service.
 type LiveLogData = {
   summary: {
-    llm: { son5dk: number; son1saat: number; son24saat: number; son_kayit: string | null; calisiyor: boolean }
-    jev: { son5dk: number; son1saat: number; son24saat: number; son_cagri: string | null; calisiyor: boolean }
-    tclk: { son_teklif: string | null; kabul24s: number; teslim24s: number; cozulemedi24s: number }
-    kazanc: { kilitli_flop_htlc: number; kilitli_paper: number }
-    harcama: { cagri_1s: number; token_1s: number; cagri_24s: number; token_24s: number; prompt_24s: number; cevap_24s: number; cagri_7g: number; token_7g: number; token_toplam: number; son_cagri: string | null }
-    skor: { gorulen_24s: number; kabul_24s: number; kabul_toplam: number; teslim_toplam: number; claim: number; no_answer: number; flop_gorulen: number; flop_kabul: number }
-    gorev: { kabul: number; yapildi: number; yapilamadi: number; kilit_gelen: number; claim: number }
+    llm: { last_5m: number; last_1h: number; last_24h: number; last_record: string | null; running: boolean }
+    jev: { last_5m: number; last_1h: number; last_24h: number; last_call: string | null; running: boolean }
+    tclk: { last_offer: string | null; accepted_24h: number; delivered_24h: number; unanswered_24h: number }
+    earnings: { locked_flop_htlc: number; locked_paper: number }
+    spend: { calls_1h: number; tokens_1h: number; calls_24h: number; tokens_24h: number; prompt_24h: number; completion_24h: number; calls_7d: number; tokens_7d: number; tokens_all: number; last_call: string | null }
+    score: { seen_24h: number; accepted_24h: number; accepted_total: number; delivered_total: number; claimed: number; no_answer: number; flop_seen: number; flop_accepted: number }
+    jobs: { accepted: number; done: number; not_done: number; locks_received: number; claims: number }
   }
   usage: { calls_1h: number; tokens_1h: number; calls_24h: number; tokens_24h: number; prompt_24h: number; completion_24h: number; calls_7d: number; tokens_7d: number; calls_all: number; tokens_all: number; last_call: string | null }
   rows: {
@@ -1546,17 +1546,17 @@ type LiveLogData = {
 function llNum(v: unknown): string {
   const n = Number(v)
   if (!isFinite(n)) return '—'
-  return n.toLocaleString('tr-TR')
+  return n.toLocaleString('en-US')
 }
 function llAgo(iso: unknown): string {
-  if (!iso || typeof iso !== 'string') return 'hiç'
+  if (!iso || typeof iso !== 'string') return 'never'
   const t = Date.parse(iso)
-  if (!isFinite(t)) return 'hiç'
+  if (!isFinite(t)) return 'never'
   const s = (Date.now() - t) / 1000
-  if (s < 90) return `${Math.floor(s)}sn önce`
-  if (s < 5400) return `${Math.floor(s / 60)}dk önce`
-  if (s < 172800) return `${Math.floor(s / 3600)}sa önce`
-  return `${Math.floor(s / 86400)}g önce`
+  if (s < 90) return `${Math.floor(s)}s ago`
+  if (s < 5400) return `${Math.floor(s / 60)}m ago`
+  if (s < 172800) return `${Math.floor(s / 3600)}h ago`
+  return `${Math.floor(s / 86400)}d ago`
 }
 function llStamp(iso: unknown): string {
   if (!iso || typeof iso !== 'string') return '—'
@@ -1612,12 +1612,12 @@ export function LiveLogPage() {
   const s = data?.summary
   const rows = data?.rows
   const jobs = rows?.jobs ?? []
-  const nDone = s?.gorev.yapildi ?? 0
-  const nJobs = s?.gorev.kabul ?? 0
-  const accAll = s?.skor.kabul_toplam ?? 0
-  const okAll = s?.skor.teslim_toplam ?? 0
+  const nDone = s?.jobs.done ?? 0
+  const nJobs = s?.jobs.accepted ?? 0
+  const accAll = s?.score.accepted_total ?? 0
+  const okAll = s?.score.delivered_total ?? 0
   const rate = accAll ? (100 * okAll) / accAll : 0
-  const share = s && s.skor.gorulen_24s ? (100 * s.skor.kabul_24s) / s.skor.gorulen_24s : 0
+  const share = s && s.score.seen_24h ? (100 * s.score.accepted_24h) / s.score.seen_24h : 0
   const tokPerCall = data && data.usage.calls_24h ? data.usage.tokens_24h / data.usage.calls_24h : 0
 
   const kindTone = (k: unknown): 'good' | 'bad' | 'warn' | 'dim' =>
@@ -1636,21 +1636,21 @@ export function LiveLogPage() {
         </h1>
         <div className="flex items-center gap-2">
           {s && <>
-            <Badge variant={s.llm.calisiyor ? 'success' : 'destructive'} className="rounded-full">LLM {s.llm.calisiyor ? 'çalışıyor' : 'sessiz'}</Badge>
-            <Badge variant={s.jev.calisiyor ? 'success' : 'destructive'} className="rounded-full">Jev {s.jev.calisiyor ? 'çalışıyor' : 'sessiz'}</Badge>
-            <Badge variant="outline" className="rounded-full">kazanç (flop-htlc): {llNum(s.kazanc.kilitli_flop_htlc)}</Badge>
+            <Badge variant={s.llm.running ? 'success' : 'destructive'} className="rounded-full">LLM {s.llm.running ? 'running' : 'silent'}</Badge>
+            <Badge variant={s.jev.running ? 'success' : 'destructive'} className="rounded-full">Jev {s.jev.running ? 'running' : 'silent'}</Badge>
+            <Badge variant="outline" className="rounded-full">earnings (flop-htlc): {llNum(s.earnings.locked_flop_htlc)}</Badge>
           </>}
-          <Badge variant="outline" className="rounded-full font-mono text-[10px]">son güncelleme {llStamp(clock)} UTC</Badge>
+          <Badge variant="outline" className="rounded-full font-mono text-[10px]">last update {llStamp(clock)} UTC</Badge>
           <Button variant={auto ? 'secondary' : 'outline'} size="sm" className="rounded-xl" onClick={() => setAuto(a => !a)}>
-            <Clock className="h-4 w-4" /> oto-yenile {auto ? 'açık' : 'kapalı'}
+            <Clock className="h-4 w-4" /> auto-refresh {auto ? 'on' : 'off'}
           </Button>
-          <Button variant="outline" size="sm" className="rounded-xl" onClick={() => { reload(); setClock(new Date().toISOString()) }}><RefreshCw className="h-4 w-4" /> Yenile</Button>
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={() => { reload(); setClock(new Date().toISOString()) }}><RefreshCw className="h-4 w-4" /> Refresh</Button>
         </div>
       </div>
 
       <p className="text-xs text-muted-foreground">
-        LLM'in ne yaptığı ve Jev'in ne karar verdiği — ayrı ayrı. Salt okunur; oto-yenileme 20 saniye.
-        Veri katmanı <span className="font-mono">packages/observability/live_log.py</span>; makine sözleşmesi <span className="font-mono">GET /api/v1/live/summary</span> (eski <span className="font-mono">/saglik</span> ile aynı şekil).
+        What the LLM did and what Jev decided — shown separately. Read-only; auto-refreshes every 20 seconds.
+        Data layer <span className="font-mono">packages/observability/live_log.py</span>; machine contract <span className="font-mono">GET /api/v1/live/summary</span> (same shape as the standalone <span className="font-mono">/summary</span>).
       </p>
 
       {!data ? (
@@ -1658,80 +1658,80 @@ export function LiveLogPage() {
       ) : (
         <>
           {/* banner */}
-          <Card className={s!.llm.calisiyor ? 'border-emerald-300/50 dark:border-emerald-900/40' : 'border-red-300/50 dark:border-red-900/40'}>
+          <Card className={s!.llm.running ? 'border-emerald-300/50 dark:border-emerald-900/40' : 'border-red-300/50 dark:border-red-900/40'}>
             <CardContent className="flex flex-wrap items-center gap-x-4 gap-y-1 p-3 text-sm font-medium">
-              <span>LLM: <span className={s!.llm.calisiyor ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}>{s!.llm.calisiyor ? 'ÇALIŞIYOR' : 'SESSİZ'}</span> — son karar {llAgo(s!.llm.son_kayit)}</span>
+              <span>LLM: <span className={s!.llm.running ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}>{s!.llm.running ? 'RUNNING' : 'SILENT'}</span> — last decision {llAgo(s!.llm.last_record)}</span>
               <span className="text-muted-foreground">·</span>
-              <span>Jev: <span className={s!.jev.calisiyor ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}>{s!.jev.calisiyor ? 'ÇALIŞIYOR' : 'SESSİZ'}</span> — son çağrı {llAgo(s!.jev.son_cagri)}</span>
+              <span>Jev: <span className={s!.jev.running ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}>{s!.jev.running ? 'RUNNING' : 'SILENT'}</span> — last call {llAgo(s!.jev.last_call)}</span>
               <span className="text-muted-foreground">·</span>
-              <span>tclk kapısı: son teklif {llAgo(s!.tclk.son_teklif)}</span>
+              <span>tclk gate: last offer {llAgo(s!.tclk.last_offer)}</span>
               <span className="text-muted-foreground">·</span>
-              <span>görevler: yapıldı {nDone}/{nJobs} · kilit {s!.gorev.kilit_gelen} · claim {s!.gorev.claim}</span>
+              <span>jobs: done {nDone}/{nJobs} · locks {s!.jobs.locks_received} · claims {s!.jobs.claims}</span>
             </CardContent>
           </Card>
 
           {/* summary cards */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <Card><CardContent className="p-4">
-              <div className="text-xs font-medium text-muted-foreground">LLM · son 5 dk</div>
-              <div className={`mt-1 text-2xl font-bold ${s!.llm.calisiyor ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.llm.son5dk)}</div>
-              <div className="text-[11px] text-muted-foreground">1sa: {llNum(s!.llm.son1saat)} · 24sa: {llNum(s!.llm.son24saat)}</div>
+              <div className="text-xs font-medium text-muted-foreground">LLM · last 5 min</div>
+              <div className={`mt-1 text-2xl font-bold ${s!.llm.running ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.llm.last_5m)}</div>
+              <div className="text-[11px] text-muted-foreground">1h: {llNum(s!.llm.last_1h)} · 24h: {llNum(s!.llm.last_24h)}</div>
             </CardContent></Card>
             <Card><CardContent className="p-4">
-              <div className="text-xs font-medium text-muted-foreground">Jev · son 5 dk</div>
-              <div className={`mt-1 text-2xl font-bold ${s!.jev.calisiyor ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.jev.son5dk)}</div>
-              <div className="text-[11px] text-muted-foreground">1sa: {llNum(s!.jev.son1saat)} · 24sa: {llNum(s!.jev.son24saat)}</div>
+              <div className="text-xs font-medium text-muted-foreground">Jev · last 5 min</div>
+              <div className={`mt-1 text-2xl font-bold ${s!.jev.running ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.jev.last_5m)}</div>
+              <div className="text-[11px] text-muted-foreground">1h: {llNum(s!.jev.last_1h)} · 24h: {llNum(s!.jev.last_24h)}</div>
             </CardContent></Card>
             <Card><CardContent className="p-4">
-              <div className="text-xs font-medium text-muted-foreground">Kabul · 24sa</div>
-              <div className="mt-1 text-2xl font-bold">{llNum(s!.tclk.kabul24s)}</div>
-              <div className="text-[11px] text-muted-foreground">teslim {llNum(s!.tclk.teslim24s)} · cevapsız {llNum(s!.tclk.cozulemedi24s)}</div>
+              <div className="text-xs font-medium text-muted-foreground">Accepted · 24h</div>
+              <div className="mt-1 text-2xl font-bold">{llNum(s!.tclk.accepted_24h)}</div>
+              <div className="text-[11px] text-muted-foreground">delivered {llNum(s!.tclk.delivered_24h)} · unanswered {llNum(s!.tclk.unanswered_24h)}</div>
             </CardContent></Card>
             <Card><CardContent className="p-4">
-              <div className="text-xs font-medium text-muted-foreground">Görevler · gerçekten yaptı mı</div>
+              <div className="text-xs font-medium text-muted-foreground">Jobs · did it really do the work</div>
               <div className={`mt-1 text-2xl font-bold ${nDone ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{nDone}/{nJobs}</div>
-              <div className="text-[11px] text-muted-foreground">teslim / kabul (son {nJobs})</div>
+              <div className="text-[11px] text-muted-foreground">done / accepted (latest {nJobs})</div>
             </CardContent></Card>
             <Card><CardContent className="p-4">
-              <div className="text-xs font-medium text-muted-foreground">Escrow · kilit & claim</div>
-              <div className={`mt-1 text-2xl font-bold ${s!.gorev.kilit_gelen ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.gorev.kilit_gelen)}</div>
-              <div className="text-[11px] text-muted-foreground">gelen kilit · reveal {llNum(s!.gorev.claim)}</div>
+              <div className="text-xs font-medium text-muted-foreground">Escrow · lock &amp; claim</div>
+              <div className={`mt-1 text-2xl font-bold ${s!.jobs.locks_received ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.jobs.locks_received)}</div>
+              <div className="text-[11px] text-muted-foreground">locks received · reveals {llNum(s!.jobs.claims)}</div>
             </CardContent></Card>
             <Card className="border-emerald-200/50 dark:border-emerald-900/40"><CardContent className="p-4">
-              <div className="text-xs font-medium text-muted-foreground">Kazanç · flop-htlc (gerçek)</div>
-              <div className={`mt-1 text-2xl font-bold ${s!.kazanc.kilitli_flop_htlc ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.kazanc.kilitli_flop_htlc)}</div>
-              <div className="text-[11px] text-muted-foreground">değersiz paper (sim) yanında: {llNum(s!.kazanc.kilitli_paper)}</div>
+              <div className="text-xs font-medium text-muted-foreground">Earnings · flop-htlc (real)</div>
+              <div className={`mt-1 text-2xl font-bold ${s!.earnings.locked_flop_htlc ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.earnings.locked_flop_htlc)}</div>
+              <div className="text-[11px] text-muted-foreground">worthless paper (sim) beside it: {llNum(s!.earnings.locked_paper)}</div>
             </CardContent></Card>
           </div>
 
           {/* spend */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Harcama · LLM token kullanımı</CardTitle>
+              <CardTitle className="text-sm">Spend · LLM token usage</CardTitle>
               <CardDescription>
-                Kaynak <span className="font-mono">llm_usage</span> — her model çağrısı kendi muhasebesini yazar.
-                Amaç kolonu neyin yaktığını söyler: <span className="font-mono">tclk-produce</span> = market brief'ini üretmek, <span className="font-mono">kibble</span> = kibble işi.
-                Son çağrı {llAgo(data.usage.last_call)} · ortalama <strong>{llNum(Math.round(tokPerCall))}</strong> token/çağrı (24sa).
+                Source <span className="font-mono">llm_usage</span> — every model call writes its own accounting.
+                The purpose column says what burned it: <span className="font-mono">tclk-produce</span> = producing the market brief, <span className="font-mono">kibble</span> = kibble work.
+                Last call {llAgo(data.usage.last_call)} · average <strong>{llNum(Math.round(tokPerCall))}</strong> tokens/call (24h).
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                <div><div className="text-xs font-medium text-muted-foreground">Son 1 saat</div><div className="mt-0.5 text-xl font-bold">{llNum(data.usage.calls_1h)}</div><div className="text-[11px] text-muted-foreground">çağrı · {llNum(data.usage.tokens_1h)} token</div></div>
-                <div><div className="text-xs font-medium text-muted-foreground">Son 24 saat</div><div className="mt-0.5 text-xl font-bold">{llNum(data.usage.calls_24h)}</div><div className="text-[11px] text-muted-foreground">çağrı · {llNum(data.usage.tokens_24h)} token</div></div>
-                <div><div className="text-xs font-medium text-muted-foreground">24sa · giriş / çıkış</div><div className="mt-0.5 text-xl font-bold">{llNum(data.usage.prompt_24h)} / {llNum(data.usage.completion_24h)}</div><div className="text-[11px] text-muted-foreground">prompt / completion token</div></div>
-                <div><div className="text-xs font-medium text-muted-foreground">Ortalama · token/çağrı</div><div className="mt-0.5 text-xl font-bold">{llNum(Math.round(tokPerCall))}</div><div className="text-[11px] text-muted-foreground">son 24 saat</div></div>
-                <div><div className="text-xs font-medium text-muted-foreground">Son 7 gün</div><div className="mt-0.5 text-xl font-bold">{llNum(data.usage.tokens_7d)}</div><div className="text-[11px] text-muted-foreground">{llNum(data.usage.calls_7d)} çağrı</div></div>
-                <div><div className="text-xs font-medium text-muted-foreground">Toplam (tüm zamanlar)</div><div className="mt-0.5 text-xl font-bold">{llNum(data.usage.tokens_all)}</div><div className="text-[11px] text-muted-foreground">{llNum(data.usage.calls_all)} çağrı</div></div>
+                <div><div className="text-xs font-medium text-muted-foreground">Last 1 hour</div><div className="mt-0.5 text-xl font-bold">{llNum(data.usage.calls_1h)}</div><div className="text-[11px] text-muted-foreground">calls · {llNum(data.usage.tokens_1h)} tokens</div></div>
+                <div><div className="text-xs font-medium text-muted-foreground">Last 24 hours</div><div className="mt-0.5 text-xl font-bold">{llNum(data.usage.calls_24h)}</div><div className="text-[11px] text-muted-foreground">calls · {llNum(data.usage.tokens_24h)} tokens</div></div>
+                <div><div className="text-xs font-medium text-muted-foreground">24h · in / out</div><div className="mt-0.5 text-xl font-bold">{llNum(data.usage.prompt_24h)} / {llNum(data.usage.completion_24h)}</div><div className="text-[11px] text-muted-foreground">prompt / completion tokens</div></div>
+                <div><div className="text-xs font-medium text-muted-foreground">Average · tokens/call</div><div className="mt-0.5 text-xl font-bold">{llNum(Math.round(tokPerCall))}</div><div className="text-[11px] text-muted-foreground">last 24 hours</div></div>
+                <div><div className="text-xs font-medium text-muted-foreground">Last 7 days</div><div className="mt-0.5 text-xl font-bold">{llNum(data.usage.tokens_7d)}</div><div className="text-[11px] text-muted-foreground">{llNum(data.usage.calls_7d)} calls</div></div>
+                <div><div className="text-xs font-medium text-muted-foreground">Total (all time)</div><div className="mt-0.5 text-xl font-bold">{llNum(data.usage.tokens_all)}</div><div className="text-[11px] text-muted-foreground">{llNum(data.usage.calls_all)} calls</div></div>
               </div>
               <LlTable
-                heads={['amaç', 'servis', 'çağrı', 'toplam token', 'cevap token', 'ort ms', 'son çağrı']}
-                rows={(rows!.usage_purpose ?? []).map((r) => [llCut(r[0], 30), String(r[1] ?? '(bilinmiyor)'), llNum(r[2]), llNum(r[3]), llNum(r[4]), llNum(r[5]), llAgo(r[6])])}
-                empty="son 24 saatte token kaydı yok — henüz ölçülmüş model çağrısı yok"
+                heads={['purpose', 'service', 'calls', 'total tokens', 'completion tokens', 'avg ms', 'last call']}
+                rows={(rows!.usage_purpose ?? []).map((r) => [llCut(r[0], 30), String(r[1] ?? '(unknown)'), llNum(r[2]), llNum(r[3]), llNum(r[4]), llNum(r[5]), llAgo(r[6])])}
+                empty="no token records in the last 24h — no model call measured yet"
               />
               <LlTable
-                heads={['zaman', 'servis', 'amaç', 'model', 'prompt', 'completion', 'toplam', 'ms']}
+                heads={['time', 'service', 'purpose', 'model', 'prompt', 'completion', 'total', 'ms']}
                 rows={(rows!.usage_recent ?? []).map((r) => [llStamp(r[0]), llCut(r[1], 12), llCut(r[2], 22), llCut(r[3], 24), llNum(r[4]), llNum(r[5]), llNum(r[6]), llNum(r[7])])}
-                empty="token kaydı yok — tablo ilk model çağrısında dolar"
+                empty="no token records yet — the table fills on the first model call"
               />
             </CardContent>
           </Card>
@@ -1739,26 +1739,26 @@ export function LiveLogPage() {
           {/* market */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Pazar · canlı teklif akışı ve skorumuz</CardTitle>
+              <CardTitle className="text-sm">Market · live offer flow and our score</CardTitle>
               <CardDescription>
-                Kaynak <span className="font-mono">tclk_offer_audits</span> — gördüğümüz <strong>her</strong> teklif: tutar, varlık
-                (<span className="font-mono">FLOP</span> = gerçek para hattı, <span className="font-mono">PAPER</span> = oyun parası), kararımız ve nedeni.
-                Kabul oranı (24sa) <strong>%{share.toFixed(1)}</strong>, teslim başarısı <strong>%{rate.toFixed(1)}</strong>.
+                Source <span className="font-mono">tclk_offer_audits</span> — <strong>every</strong> offer we saw: amount, asset
+                (<span className="font-mono">FLOP</span> = real money line, <span className="font-mono">PAPER</span> = play money), our decision and why.
+                Acceptance rate (24h) <strong>{share.toFixed(1)}%</strong>, delivery success <strong>{rate.toFixed(1)}%</strong>.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                <div><div className="text-xs font-medium text-muted-foreground">Pazar payı · 24sa</div><div className="mt-0.5 text-xl font-bold">{llNum(s!.skor.kabul_24s)} / {llNum(s!.skor.gorulen_24s)}</div><div className="text-[11px] text-muted-foreground">kabul / görülen · %{share.toFixed(1)}</div></div>
-                <div><div className="text-xs font-medium text-muted-foreground">Teslim başarısı</div><div className={`mt-0.5 text-xl font-bold ${rate >= 50 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>%{rate.toFixed(1)}</div><div className="text-[11px] text-muted-foreground">teslim+claim {okAll} / kabul {accAll}</div></div>
-                <div><div className="text-xs font-medium text-muted-foreground">Para hattı · FLOP</div><div className={`mt-0.5 text-xl font-bold ${s!.skor.flop_kabul ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.skor.flop_kabul)} / {llNum(s!.skor.flop_gorulen)}</div><div className="text-[11px] text-muted-foreground">alınan / görülen FLOP teklifi</div></div>
-                <div><div className="text-xs font-medium text-muted-foreground">Ödeme alındı (claim)</div><div className={`mt-0.5 text-xl font-bold ${s!.skor.claim ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.skor.claim)}</div><div className="text-[11px] text-muted-foreground">sır açıldı, ödeme hakkı işlendi</div></div>
-                <div><div className="text-xs font-medium text-muted-foreground">Çözülemeyen</div><div className={`mt-0.5 text-xl font-bold ${s!.skor.no_answer ? 'text-red-600 dark:text-red-400' : ''}`}>{llNum(s!.skor.no_answer)}</div><div className="text-[11px] text-muted-foreground">cevap üretilemedi — ödeme yok</div></div>
-                <div><div className="text-xs font-medium text-muted-foreground">Toplam kabul</div><div className="mt-0.5 text-xl font-bold">{llNum(s!.skor.kabul_toplam)}</div><div className="text-[11px] text-muted-foreground">başlangıçtan beri alınan iş</div></div>
+                <div><div className="text-xs font-medium text-muted-foreground">Market share · 24h</div><div className="mt-0.5 text-xl font-bold">{llNum(s!.score.accepted_24h)} / {llNum(s!.score.seen_24h)}</div><div className="text-[11px] text-muted-foreground">accepted / seen · {share.toFixed(1)}%</div></div>
+                <div><div className="text-xs font-medium text-muted-foreground">Delivery success</div><div className={`mt-0.5 text-xl font-bold ${rate >= 50 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{rate.toFixed(1)}%</div><div className="text-[11px] text-muted-foreground">delivered+claimed {okAll} / accepted {accAll}</div></div>
+                <div><div className="text-xs font-medium text-muted-foreground">Money line · FLOP</div><div className={`mt-0.5 text-xl font-bold ${s!.score.flop_accepted ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.score.flop_accepted)} / {llNum(s!.score.flop_seen)}</div><div className="text-[11px] text-muted-foreground">FLOP offers taken / seen</div></div>
+                <div><div className="text-xs font-medium text-muted-foreground">Payout claimed</div><div className={`mt-0.5 text-xl font-bold ${s!.score.claimed ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.score.claimed)}</div><div className="text-[11px] text-muted-foreground">secret revealed, payout right processed</div></div>
+                <div><div className="text-xs font-medium text-muted-foreground">Unresolved</div><div className={`mt-0.5 text-xl font-bold ${s!.score.no_answer ? 'text-red-600 dark:text-red-400' : ''}`}>{llNum(s!.score.no_answer)}</div><div className="text-[11px] text-muted-foreground">no answer produced — no payment</div></div>
+                <div><div className="text-xs font-medium text-muted-foreground">Total accepted</div><div className="mt-0.5 text-xl font-bold">{llNum(s!.score.accepted_total)}</div><div className="text-[11px] text-muted-foreground">work taken since the start</div></div>
               </div>
               <LlTable
-                heads={['zaman', 'oda', 'varlık', 'tutar', 'rail', 'kararımız', 'risk', 'gerekçe', 'teklif (brief)']}
+                heads={['time', 'room', 'asset', 'amount', 'rail', 'our decision', 'risk', 'reason', 'offer (brief)']}
                 rows={(rows!.market ?? []).map((r) => [llStamp(r[0]), `${llCut(r[8], 12)}#${r[9] ?? ''}`, String(r[1] ?? '—'), llNum(r[2]), String(r[3] ?? 'paper'), String(r[4] ?? ''), String(r[5] ?? '—'), llCut(r[6], 40), llCut(r[7], 34)])}
-                empty="pazarda henüz teklif görülmedi"
+                empty="no offers seen on the market yet"
               />
             </CardContent>
           </Card>
@@ -1766,21 +1766,21 @@ export function LiveLogPage() {
           {/* 1 job completion */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">1 · Görev tamamlama — işi gerçekten yaptı mı?</CardTitle>
+              <CardTitle className="text-sm">1 · Job completion — did it really do the work?</CardTitle>
               <CardDescription>
-                Kabul ettiğimiz <strong>her iş</strong> için bir satır: brief neydi, iş <strong>üretildi mi</strong> (DONE) yoksa üretilemedi mi (NOT DONE),
-                odaya giden gerçek cevap, escrow kilidi geldi mi, claim ettik mi. Şu an: kabul {nJobs} · yapıldı {nDone} · gelen kilit {s!.gorev.kilit_gelen} · claim {s!.gorev.claim}.
+                One row for <strong>every job</strong> we accepted: what the brief was, whether the work was <strong>produced</strong> (DONE) or could not be produced (NOT DONE),
+                the real answer that went to the room, whether the escrow lock arrived, whether we claimed it. Right now: accepted {nJobs} · done {nDone} · locks received {s!.jobs.locks_received} · claims {s!.jobs.claims}.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <LlTable
-                heads={['zaman', 'contract', 'iş (brief)', 'tutar', 'İŞİ YAPTI MI?', 'üretilen cevap', 'kilit', 'claim', 'teslim']}
+                heads={['time', 'contract', 'job (brief)', 'amount', 'DID THE JOB?', 'produced answer', 'lock', 'claim', 'delivered']}
                 rows={jobs.map((r) => [
                   llStamp(r[0]), llCut(r[1], 20), llCut(r[2], 26), llNum(r[3]),
                   (r[5] === 'delivered' || r[5] === 'claimed') ? 'DONE' : 'NOT DONE',
                   llCut(r[6], 70), llNum(r[7]), llNum(r[10]), llAgo(r[9]),
                 ])}
-                empty="henüz kabul edilmiş iş yok — hiçbir iş alınmadı"
+                empty="no jobs accepted yet — no work taken"
               />
             </CardContent>
           </Card>
@@ -1788,19 +1788,19 @@ export function LiveLogPage() {
           {/* 2 LLM log */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">2 · LLM günlüğü</CardTitle>
-              <CardDescription>Kaynak <span className="font-mono">agent_evaluations</span> — hangi model, hangi skor/tier, hangi gerekçe, hangi metne baktı.</CardDescription>
+              <CardTitle className="text-sm">2 · LLM log</CardTitle>
+              <CardDescription>Source <span className="font-mono">agent_evaluations</span> — which model, which score/tier, which reason, which text it looked at.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <LlTable
-                heads={['model', '24sa karar', 'son kullanım']}
+                heads={['model', '24h decisions', 'last use']}
                 rows={(rows!.models ?? []).map((r) => [llCut(r[0], 34), llNum(r[1]), llAgo(r[2])])}
-                empty="24sa içinde LLM kararı yok"
+                empty="no LLM decisions in 24h"
               />
               <LlTable
-                heads={['zaman', 'model', 'skor', 'tier', 'gerekçe', 'kim', 'değerlendirilen metin']}
+                heads={['time', 'model', 'score', 'tier', 'reason', 'who', 'text evaluated']}
                 rows={(rows!.llm ?? []).map((r) => [llStamp(r[0]), llCut(r[1], 24), llNum(r[2]), String(r[3] ?? ''), llCut(r[4], 44), llCut(r[5], 18), llCut(r[6], 90)])}
-                empty="henüz LLM kararı kaydedilmedi"
+                empty="no LLM decisions recorded yet"
               />
             </CardContent>
           </Card>
@@ -1808,14 +1808,14 @@ export function LiveLogPage() {
           {/* 3 Jev log */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">3 · Jev günlüğü</CardTitle>
-              <CardDescription>Kaynak <span className="font-mono">tclk_offer_audits</span> (jev_ran=true) — Jev hangi teklife ne dedi, hangi modelle, hangi güvende ve brief var mıydı.</CardDescription>
+              <CardTitle className="text-sm">3 · Jev log</CardTitle>
+              <CardDescription>Source <span className="font-mono">tclk_offer_audits</span> (jev_ran=true) — what Jev said about which offer, with which model, at what confidence, and whether a brief existed.</CardDescription>
             </CardHeader>
             <CardContent>
               <LlTable
-                heads={['zaman', 'tier', 'güven', 'Jev gerekçesi', 'model', 'karar', 'brief', 'teklif özeti']}
-                rows={(rows!.jev ?? []).map((r) => [llStamp(r[0]), String(r[1] ?? ''), r[2] === null || r[2] === undefined ? '—' : Number(r[2]).toFixed(2), llCut(r[3], 50), llCut(r[4], 20), String(r[5] ?? ''), r[8] ? 'eksik' : 'var', llCut(r[6] ?? r[7], 56)])}
-                empty="henüz Jev kararı yok — Jev çağrılmadı"
+                heads={['time', 'tier', 'confidence', 'Jev reason', 'model', 'decision', 'brief', 'offer summary']}
+                rows={(rows!.jev ?? []).map((r) => [llStamp(r[0]), String(r[1] ?? ''), r[2] === null || r[2] === undefined ? '—' : Number(r[2]).toFixed(2), llCut(r[3], 50), llCut(r[4], 20), String(r[5] ?? ''), r[8] ? 'missing' : 'present', llCut(r[6] ?? r[7], 56)])}
+                empty="no Jev decisions yet — Jev was not called"
               />
             </CardContent>
           </Card>
@@ -1823,14 +1823,14 @@ export function LiveLogPage() {
           {/* 4 tclk flow */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">4 · tclk iş akışı</CardTitle>
-              <CardDescription>Gelen teklif → karar → kabul → teslim. "no_answer" = cevap göndermedik (yapamadığımız iş); "cevap" kolonu odaya giden gerçek metindir.</CardDescription>
+              <CardTitle className="text-sm">4 · tclk work flow</CardTitle>
+              <CardDescription>Incoming offer → decision → accept → delivery. "no_answer" = we sent no answer (work we could not do); the "answer" column is the real text that went to the room.</CardDescription>
             </CardHeader>
             <CardContent>
               <LlTable
-                heads={['zaman', 'karar', 'risk', 'gerekçe', 'rail', 'tutar', 'brief', 'iş', 'sonuç', 'gönderilen cevap']}
-                rows={(rows!.flow ?? []).map((r) => [llStamp(r[0]), String(r[1] ?? ''), String(r[2] ?? ''), llCut(r[3], 40), llCut(r[4], 16), llNum(r[5]), r[7] ? 'eksik' : 'var', llCut(r[6], 30), String(r[8] ?? '—'), llCut(r[9], 44)])}
-                empty="henüz teklif kararı yok"
+                heads={['time', 'decision', 'risk', 'reason', 'rail', 'amount', 'brief', 'job', 'outcome', 'answer sent']}
+                rows={(rows!.flow ?? []).map((r) => [llStamp(r[0]), String(r[1] ?? ''), String(r[2] ?? ''), llCut(r[3], 40), llCut(r[4], 16), llNum(r[5]), r[7] ? 'missing' : 'present', llCut(r[6], 30), String(r[8] ?? '—'), llCut(r[9], 44)])}
+                empty="no offer decisions yet"
               />
             </CardContent>
           </Card>
@@ -1838,17 +1838,17 @@ export function LiveLogPage() {
           {/* 5 earnings */}
           <Card className="border-emerald-200/50 dark:border-emerald-900/40">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">5 · Kazanç</CardTitle>
+              <CardTitle className="text-sm">5 · Earnings</CardTitle>
               <CardDescription>
-                Kendi kontratlarımıza gelen <strong>kilit/ödeme</strong> frame'leri.
-                Şu an kontratlarımıza bağlı frame türleri: <span className="font-mono">{(rows!.myframes ?? []).map((r) => `${r[0]} ×${r[1]}`).join(', ') || '—'}</span>
+                <strong>Lock/payment</strong> frames arriving on our own contracts.
+                Frame kinds currently tied to our contracts: <span className="font-mono">{(rows!.myframes ?? []).map((r) => `${r[0]} ×${r[1]}`).join(', ') || '—'}</span>
               </CardDescription>
             </CardHeader>
             <CardContent>
               <LlTable
-                heads={['zaman', 'tür', 'rail', 'varlık', 'tutar', 'contract', 'gönderilen cevap']}
+                heads={['time', 'kind', 'rail', 'asset', 'amount', 'contract', 'answer sent']}
                 rows={(rows!.earn ?? []).map((r) => [llStamp(r[0]), String(r[1] ?? ''), String(r[2] ?? ''), String(r[3] ?? ''), llNum(r[4]), llCut(r[5], 22), llCut(r[6], 30)])}
-                empty="kazanç yok — kendi kontratlarımıza hiç kilit/ödeme frame'i gelmedi"
+                empty="no earnings — no lock/payment frame has arrived on our own contracts"
               />
             </CardContent>
           </Card>

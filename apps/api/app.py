@@ -1157,7 +1157,7 @@ def live_log(user: dict = Depends(get_current_user)):
 
 @app.get("/api/v1/live/summary")
 def live_summary(user: dict = Depends(get_current_user)):
-    """Machine contract of the live log (same shape as the standalone /saglik)."""
+    """Machine contract of the live log (same shape as the standalone /summary)."""
     _ = user
     from observability.live_log import collect, json_summary
 

@@ -171,7 +171,7 @@ cp .env.example .env          # optional — quickstart.sh creates it if missing
 Open **http://localhost:3525**
 
 - First login: `ADMIN_EMAIL` (default `admin@example.com`) + password you set in the wizard (Step 1). If you used `quickstart.sh`/`--yes`, it generated a random password and printed it once — save it.
-- Change the password any time from the web UI: **Settings → Şifre değiştir** (no shell needed). `setup.sh --reconfigure` still works too — the `.env` value is re-applied on restart whenever it *changes*.
+- Change the password any time from the web UI: **Settings → Change password** (no shell needed). `setup.sh --reconfigure` still works too — the `.env` value is re-applied on restart whenever it *changes*.
 - Verify: `curl -s http://localhost:3525/health/ready | jq` should return `{"status":"ready"}`.
 - Registration check: `docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler python apps/tools/flop_register.py --check --key-path /secrets/did.ed25519`
 - Logs: `docker compose logs -f`
@@ -432,7 +432,7 @@ TCLK_AGENT_TASK_PATTERNS=...,math,census,probe,attest,tip,val,protocol,harness
 
 - **Exact answers or nothing.** The solver answers the deterministic families (protocol transcript fold, validation PASS/FAIL, math, `/kv` note reads, HTTP probes, one-word tips, documentation quotes) and never guesses.
 - **Judged work counts.** Passes on claimed deals build the passport ranking; the harness season takes units from any DID over the bar.
-- **Everything is audited.** `tclk_offer_audits` records each decision and its reason; `/saglik` and the dashboard show the per-rail split.
+- **Everything is audited.** `tclk_offer_audits` records each decision and its reason; `/summary` and the dashboard show the per-rail split.
 
 ### 8. Verify an installation
 
@@ -468,7 +468,7 @@ Full details: [SECURITY.md](./SECURITY.md)
 |   |-- scheduler/      # Periodic source scans, memory promotion, digests,
 |   |                   #   tclk market agent (agent_scorer, tclk_solver, br_fold, producer)
 |   |-- earn/           # Earning loops: trader, kibble, close1, blockrewards
-|   |-- logs/           # Live dashboard (rail-aware earnings) + /saglik JSON
+|   |-- logs/           # Live dashboard (rail-aware earnings) + /summary JSON
 |   |-- tools/          # flop_register.py (FLOP identity), flop.py, archive_rooms.py
 |   +-- web/            # React + Vite + Tailwind 4 frontend (built into API image)
 |-- packages/           # Shared Python packages (policy, memory, observability, connectors)

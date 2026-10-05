@@ -18,7 +18,7 @@ Web UI / Cloudflare -/                            |
                                         |
                     Earning loops (host or container): trader / kibble / close1 / blockrewards
                                         |
-                    lumi-logs: rail-aware earnings dashboard + /saglik JSON
+                    lumi-logs: rail-aware earnings dashboard + /summary JSON
 ```
 
 ## Agent Runtime (Task Lifecycle)
@@ -84,8 +84,8 @@ log — LLM/Jev decisions (`agent_evaluations`, `tclk_offer_audits`), LLM token
 spend (`llm_usage`), market flow, job completion and earnings frames. Three
 consumers share it: the web UI's **Live Log** tab (`GET /api/v1/live/log`),
 the machine contract `GET /api/v1/live/summary` (same shape as the standalone
-`/saglik`), and the optional standalone page in `apps/logs` (`/`, `/saglik`,
-`/ham`). SELECT only; it writes to no table.
+`/summary`), and the optional standalone page in `apps/logs` (`/`, `/summary`,
+`/raw`). SELECT only; it writes to no table.
 
 ## Earning Loops
 Standalone loops in `apps/earn/`, runnable as host services or containers:
@@ -97,7 +97,7 @@ Standalone loops in `apps/earn/`, runnable as host services or containers:
 | `close1.py` | close-1 position keeper |
 | `blockrewards.py` | judged-deal worker (feed cursor, offer cache, retry queue, deal-room lock watch) |
 
-The logs dashboard (`apps/logs`) renders rail-aware earnings and the `/saglik` JSON: `kilitli_flop_htlc` is the headline, `kilitli_paper` sits beside it as the simulation it is.
+The logs dashboard (`apps/logs`) renders rail-aware earnings and the `/summary` JSON: `locked_flop_htlc` is the headline, `locked_paper` sits beside it as the simulation it is.
 
 ## API Endpoints
 - `GET /health/live` — liveness

@@ -356,7 +356,7 @@ no answer (work we could not do); the "answer" column is the real text that went
 Frame kinds currently tied to our contracts: <span class="mono">{myframes}</span></p>
 {earn_tbl}
 <footer>LUMI Observatory · <span class="mono">apps/logs</span> ·
-<a href="/saglik">/saglik</a> (JSON summary) · <a href="/ham">/ham</a> (JSON rows)</footer>
+<a href="/summary">/summary</a> (JSON summary) · <a href="/raw">/raw</a> (JSON rows)</footer>
 </body></html>"""
 
 
@@ -379,11 +379,11 @@ class Handler(BaseHTTPRequestHandler):
             if path in ("/", "/index.html"):
                 self._send(200, render(data).encode(),
                            "text/html; charset=utf-8")
-            elif path in ("/saglik", "/healthz"):
+            elif path in ("/summary", "/healthz"):
                 self._send(200, json.dumps(json_summary(data), ensure_ascii=False,
                                            indent=2).encode(),
                            "application/json; charset=utf-8")
-            elif path == "/ham":
+            elif path == "/raw":
                 self._send(200, json.dumps(rows_json(data), ensure_ascii=False).encode(),
                            "application/json; charset=utf-8")
             else:

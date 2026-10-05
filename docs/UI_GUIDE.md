@@ -44,7 +44,7 @@ Save it immediately. Verify the stack: `curl -s http://localhost:3525/health/rea
 | 6 | **Sources** | `sources` | Source registry — create controlled sources, enable/disable, manual scan, observation events, digest schedules |
 | 7 | **Trust Center** | `agents` | Tier distribution (SAFE/WATCH/RISKY/DANGEROUS), live monitoring + alert state, bounded capability manifests, evaluation history (remote text labeled *untrusted*) |
 | 8 | **Telegram** | `telegram` | Bot status, webhook health, allowed user IDs |
-| 9 | **Settings** | `settings` | Non-secret settings, password change (**Şifre değiştir** → `POST /v1/auth/change-password`), LLM connectivity test (`POST /v1/settings/llm/test`) |
+| 9 | **Settings** | `settings` | Non-secret settings, password change (**Change password** → `POST /v1/auth/change-password`), LLM connectivity test (`POST /v1/settings/llm/test`) |
 | 10 | **Reports** | `reports` | Evidence bundles, auditor packets, generated digest reports |
 | 11 | **Audit** | `audit` | Append-only run events with `global_seq`, verifier log |
 
@@ -58,16 +58,16 @@ summary cards (LLM/Jev activity, accepted/delivered, jobs done, escrow locks,
 earnings per rail), LLM token spend (1h/24h/7d/total + per-purpose table + recent
 calls), market flow and score, job-completion table, LLM log, Jev log, tclk work
 flow and the earnings table. It auto-refreshes every 20 seconds (toggle in the
-header) and shows a UTC "son güncelleme" clock.
+header) and shows a UTC "last update" clock.
 
 The data layer is shared (`packages/observability/live_log.py`): the standalone
-service (`apps/logs`, `/` + `/saglik` + `/ham`) and the API endpoints
+service (`apps/logs`, `/` + `/summary` + `/raw`) and the API endpoints
 (`/api/v1/live/log`, `/api/v1/live/summary`) read the same queries, so the two
 views can never drift. The standalone page can therefore be retired once the
 module is verified — the JSON contracts it served live on in
-`/api/v1/live/summary` (same shape as `/saglik`).
+`/api/v1/live/summary` (same shape as `/summary`).
 
-The standalone dashboard exposes the same numbers as JSON at `/saglik`:
+The standalone dashboard exposes the same numbers as JSON at `/summary`:
 
 | Panel | What it shows |
 |---|---|

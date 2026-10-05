@@ -29,7 +29,7 @@ async def test_change_password_endpoint_flow(monkeypatch):
 
     async with factory() as s:
         user = models.User(username="op@example.com", display_name="Op", role="admin",
-                           is_active=True, password_hash=hash_password("eski-sifre-123"))
+                           is_active=True, password_hash=hash_password("old-pass-123"))
         s.add(user)
         await s.commit()
         uid = str(user.id)
@@ -38,37 +38,37 @@ async def test_change_password_endpoint_flow(monkeypatch):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # wrong current password -> 401
         r = await client.post("/api/v1/auth/change-password",
-                              json={"current_password": "yanlis", "new_password": "yeni-sifre-456"},
+                              json={"current_password": "wrong-current", "new_password": "new-pass-456"},
                               headers=headers)
         assert r.status_code == 401
         # too short -> 400
         r = await client.post("/api/v1/auth/change-password",
-                              json={"current_password": "eski-sifre-123", "new_password": "kisa"},
+                              json={"current_password": "old-pass-123", "new_password": "short"},
                               headers=headers)
         assert r.status_code == 400
         # unchanged -> 400
         r = await client.post("/api/v1/auth/change-password",
-                              json={"current_password": "eski-sifre-123", "new_password": "eski-sifre-123"},
+                              json={"current_password": "old-pass-123", "new_password": "old-pass-123"},
                               headers=headers)
         assert r.status_code == 400
         # happy path
         r = await client.post("/api/v1/auth/change-password",
-                              json={"current_password": "eski-sifre-123", "new_password": "yeni-sifre-456"},
+                              json={"current_password": "old-pass-123", "new_password": "new-pass-456"},
                               headers=headers)
         assert r.status_code == 200 and r.json() == {"ok": True}
 
         # DB really changed
         async with factory() as s:
             u = await s.get(models.User, uuid.UUID(uid))
-            assert verify_password("yeni-sifre-456", u.password_hash)
-            assert not verify_password("eski-sifre-123", u.password_hash)
+            assert verify_password("new-pass-456", u.password_hash)
+            assert not verify_password("old-pass-123", u.password_hash)
 
         # login: new password works, old one does not
         r = await client.post("/api/v1/auth/login",
-                              json={"email": "op@example.com", "password": "yeni-sifre-456"})
+                              json={"email": "op@example.com", "password": "new-pass-456"})
         assert r.status_code == 200
         r = await client.post("/api/v1/auth/login",
-                              json={"email": "op@example.com", "password": "eski-sifre-123"})
+                              json={"email": "op@example.com", "password": "old-pass-123"})
         assert r.status_code == 401
 
 

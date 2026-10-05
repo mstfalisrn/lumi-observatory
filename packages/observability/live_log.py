@@ -2,7 +2,7 @@
 
 One source of truth for both consumers:
 
-- ``apps/logs/app.py`` — the standalone live-log page (``/``, ``/saglik``, ``/ham``)
+- ``apps/logs/app.py`` — the standalone live-log page (``/``, ``/summary``, ``/raw``)
 - ``apps/api/app.py``   — ``GET /api/v1/live/log`` + ``GET /api/v1/live/summary``
   (the same data as a module inside the main web UI)
 
@@ -286,9 +286,9 @@ def stamp(ts: datetime | None) -> str:
 
 
 def num(v: object) -> str:
-    """Thousands-separated number (dot separator, for metric readability)."""
+    """Thousands-separated number (English convention, for metric readability)."""
     try:
-        return f"{int(v):,}".replace(",", ".")
+        return f"{int(v):,}"
     except (TypeError, ValueError):
         return "—"
 
@@ -306,70 +306,65 @@ def _rows(rows: list[tuple]) -> list[list]:
 
 
 def json_summary(d: dict) -> dict:
-    """The machine contract (same shape as the standalone service's /saglik)."""
+    """The machine contract (same shape as the standalone service's /summary)."""
     (llm5, llm60, llm24, jv5, jv60, jv24, acc24, del24, noa24, locked,
      locked_paper, last_llm, last_jev, last_audit) = d["summary"]
-    # NOTE: the JSON keys below are Turkish on purpose (son5dk, son_kayit, calisiyor,
-    # kazanc, gorev, harcama, amac_kirilimi, ...). /saglik is a machine contract read
-    # by external monitors, so the keys stay exactly as they are.
     return {
-        "llm": {"son5dk": llm5, "son1saat": llm60, "son24saat": llm24,
-                "son_kayit": _iso(last_llm),
-                "calisiyor": is_fresh(last_llm)},
-        "jev": {"son5dk": jv5, "son1saat": jv60, "son24saat": jv24,
-                "son_cagri": _iso(last_jev),
-                "calisiyor": is_fresh(last_jev)},
-        "tclk": {"son_teklif": _iso(last_audit),
-                 "kabul24s": acc24, "teslim24s": del24, "cozulemedi24s": noa24},
-        "kazanc": {"kilitli_flop_htlc": locked, "kilitli_paper": locked_paper},
-        "harcama": {
-            "cagri_1s": int(d["usage"][0] or 0),
-            "token_1s": int(d["usage"][1] or 0),
-            "cagri_24s": int(d["usage"][2] or 0),
-            "token_24s": int(d["usage"][3] or 0),
-            "prompt_24s": int(d["usage"][4] or 0),
-            "cevap_24s": int(d["usage"][5] or 0),
-            "cagri_7g": int(d["usage"][6] or 0),
-            "token_7g": int(d["usage"][7] or 0),
-            "token_toplam": int(d["usage"][9] or 0),
-            "son_cagri": _iso(d["usage"][10]),
-            "amac_kirilimi": [
-                {"amac": r[0], "servis": r[1], "cagri": int(r[2] or 0),
-                 "token": int(r[3] or 0), "cevap_token": int(r[4] or 0)}
+        "llm": {"last_5m": llm5, "last_1h": llm60, "last_24h": llm24,
+                "last_record": _iso(last_llm),
+                "running": is_fresh(last_llm)},
+        "jev": {"last_5m": jv5, "last_1h": jv60, "last_24h": jv24,
+                "last_call": _iso(last_jev),
+                "running": is_fresh(last_jev)},
+        "tclk": {"last_offer": _iso(last_audit),
+                 "accepted_24h": acc24, "delivered_24h": del24, "unanswered_24h": noa24},
+        "earnings": {"locked_flop_htlc": locked, "locked_paper": locked_paper},
+        "spend": {
+            "calls_1h": int(d["usage"][0] or 0),
+            "tokens_1h": int(d["usage"][1] or 0),
+            "calls_24h": int(d["usage"][2] or 0),
+            "tokens_24h": int(d["usage"][3] or 0),
+            "prompt_24h": int(d["usage"][4] or 0),
+            "completion_24h": int(d["usage"][5] or 0),
+            "calls_7d": int(d["usage"][6] or 0),
+            "tokens_7d": int(d["usage"][7] or 0),
+            "tokens_all": int(d["usage"][9] or 0),
+            "last_call": _iso(d["usage"][10]),
+            "by_purpose": [
+                {"purpose": r[0], "service": r[1], "calls": int(r[2] or 0),
+                 "tokens": int(r[3] or 0), "completion_tokens": int(r[4] or 0)}
                 for r in d["usage_purpose"]
             ],
         },
-        "skor": {
-            "gorulen_24s": int(d["score"][0] or 0),
-            "kabul_24s": int(d["score"][1] or 0),
-            "kabul_toplam": int(d["score"][2] or 0),
-            "teslim_toplam": int(d["score"][3] or 0),
-            "claim": int(d["score"][4] or 0),
+        "score": {
+            "seen_24h": int(d["score"][0] or 0),
+            "accepted_24h": int(d["score"][1] or 0),
+            "accepted_total": int(d["score"][2] or 0),
+            "delivered_total": int(d["score"][3] or 0),
+            "claimed": int(d["score"][4] or 0),
             "no_answer": int(d["score"][5] or 0),
-            "flop_gorulen": int(d["score"][6] or 0),
-            "flop_kabul": int(d["score"][7] or 0),
+            "flop_seen": int(d["score"][6] or 0),
+            "flop_accepted": int(d["score"][7] or 0),
         },
-        "gorev": {
-            "kabul": len(d["jobs"]),
-            "yapildi": sum(1 for r in d["jobs"] if (r[5] or "") in ("delivered", "claimed")),
-            "yapilamadi": sum(1 for r in d["jobs"] if (r[5] or "") == "no_answer"),
-            "kilit_gelen": sum(1 for r in d["jobs"] if int(r[7] or 0) > 0),
-            "claim": sum(1 for r in d["jobs"] if int(r[10] or 0) > 0),
+        "jobs": {
+            "accepted": len(d["jobs"]),
+            "done": sum(1 for r in d["jobs"] if (r[5] or "") in ("delivered", "claimed")),
+            "not_done": sum(1 for r in d["jobs"] if (r[5] or "") == "no_answer"),
+            "locks_received": sum(1 for r in d["jobs"] if int(r[7] or 0) > 0),
+            "claims": sum(1 for r in d["jobs"] if int(r[10] or 0) > 0),
         },
     }
 
 
 def rows_json(d: dict) -> dict:
-    """The raw-rows contract (same shape and formatting as the standalone /ham)."""
-    # NOTE: these keys stay Turkish (akis, kazanc, gorev, pazar) — /ham is a JSON
-    # contract consumed outside this service, so cells keep the legacy str() form.
+    """The raw-rows contract (same shape and formatting as the standalone /raw)."""
     return {
         "llm": [[str(x) for x in r] for r in d["llm"]],
         "jev": [[str(x) for x in r] for r in d["jev"]],
-        "akis": [[str(x) for x in r] for r in d["flow"]],
-        "kazanc": [[str(x) for x in r] for r in d["earn"]],
-        "gorev": [[str(x) for x in r] for r in d["jobs"]],
-        "pazar": [[str(x) for x in r] for r in d["market"]],
+        "flow": [[str(x) for x in r] for r in d["flow"]],
+        "earnings": [[str(x) for x in r] for r in d["earn"]],
+        "jobs": [[str(x) for x in r] for r in d["jobs"]],
+        "market": [[str(x) for x in r] for r in d["market"]],
     }
 
 

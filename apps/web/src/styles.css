@@ -326,3 +326,15 @@ input { background: var(--panel2); border: 1px solid var(--border-legacy); color
 .toast { position:fixed; top:14px; right:14px; background: var(--panel2); border:1px solid var(--ok); color: var(--ok); padding:10px 14px; border-radius:10px; z-index:99; cursor:pointer; }
 .nav-foot { margin-top:12px; font-size:11px; }
 select { cursor:pointer; }
+
+/* Native <select> popups are rendered by the OS/browser, not by Tailwind classes:
+   in dark mode option text inherited a light color while the popup stayed white,
+   so the list looked empty. Pin explicit colors for the options in both themes. */
+select option {
+  background-color: #ffffff;
+  color: #18181b;
+}
+.dark select option {
+  background-color: #232327;
+  color: #fafafa;
+}
