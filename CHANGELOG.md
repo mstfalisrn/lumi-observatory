@@ -26,6 +26,10 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 - `app_state` key/value table (migration `e7a1b2c3d4e5`): `ADMIN_PASSWORD_HASH` is applied from the environment when it CHANGES (first boot, `setup.sh --reconfigure`) instead of on every boot, so a UI-set password is never silently reverted
 - Fixed: `setup.sh` now escapes `$` as `$$` when writing `.env` values — a raw pbkdf2 hash was being mangled by docker-compose interpolation, so a password typed in the wizard could never log in
 
+- Security (external audit follow-up): `/assets/{path}` is now containment-checked (resolved path must stay inside the assets root — blocks `../` and symlink escapes, G01); `/auth/login` carries its own per-IP + per-account rate limiter (G02); the blockrewards worker only reveals on a venue-verified lock — signed lane + claimable rail + ref bound to the deal + expected payer (G03)
+- `setup.sh`: admin password reaches Python via the environment, never interpolated into source (a password with quotes or `$` can no longer break the wizard, F02)
+- Removed personal/mail tooling from the public tree (`send_docx_mail.py`, `make_summary_docx.py`, personal summary DOCX) and genericized hardcoded server paths in earn workers + systemd samples
+
 ### Changed
 - Jev is served from TypeSafe directly (`JEV_BASE_URL=https://api.typesafe.ai/v1`, `JEV_EVAL_PATH=/systemone`, `JEV_MODEL=jev-latest`); the `boolean` question type is normalized to `noul` (the API rejects `boolean` with 400) and per-call cost is estimated from token counts
 - tclk market work is gated to value-bearing rails: `TCLK_AGENT_RAILS` now ships as `flop-htlc` only, so `paper` (simulation) and `x402` offers are skipped at the audit gate — paper deals cannot consume accept quota or concurrency slots

@@ -135,20 +135,30 @@ from observability.auth import (
 _PUBLIC_PATHS = {"/health/live", "/health/ready", "/api/health/live", "/api/health/ready", "/api/v1/auth/login", "/api/v1/auth/status"}
 
 
+def _request_client_ip(request: Request) -> str:
+    """Client IP behind the trusted tunnel.
+
+    The compose stack binds the API to loopback and Cloudflare Tunnel sits in
+    front, so CF-Connecting-IP (set by the edge) is the real client; a direct
+    peer address is the fallback (self-hosted, no tunnel).
+    """
+    cf_ip = request.headers.get("CF-Connecting-IP", "").strip()
+    xff = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    return cf_ip or xff or (request.client.host if request.client else "unknown")
+
+
 @app.middleware("http")
 async def _guard(request: Request, call_next):
     path = request.url.path
-    # Telegram webhook + health + login are exempt (protected by webhook secret header)
+    # Telegram webhook + health + login are exempt (login carries its own limiter)
     if path.startswith("/webhooks/telegram/") or path in _PUBLIC_PATHS:
         return await call_next(request)
     # Body size limit (Content-Length + streaming guard)
     cl = request.headers.get("content-length", "")
     if cl.isdigit() and int(cl) > settings.MAX_REQUEST_BODY_BYTES:
         return JSONResponse({"detail": "request body too large"}, status_code=413)
-    # Global rate limit — real client IP (behind Cloudflare Tunnel request.client.host=127.0.0.1)
-    cf_ip = request.headers.get("CF-Connecting-IP", "").strip()
-    xff = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-    ip = cf_ip or xff or (request.client.host if request.client else "unknown")
+    # Global rate limit — real client IP
+    ip = _request_client_ip(request)
     if not await rate_limiter.check(f"rl:global:{ip}", settings.RATE_LIMIT_PER_MINUTE, 60):
         return JSONResponse({"detail": "rate limit exceeded"}, status_code=429)
     return await call_next(request)
@@ -213,8 +223,22 @@ class LoginRequest(BaseModel):
     password: str
 
 
+# Brute-force protection for the public login route: the middleware exempts
+# /auth/login (it must work before a session exists), so it carries its own
+# limiter — per client IP and per account, 5-minute windows.
+_LOGIN_IP_LIMIT, _LOGIN_ACCOUNT_LIMIT, _LOGIN_WINDOW_S = 10, 5, 300
+
+
 @app.post("/api/v1/auth/login")
-async def login(req: LoginRequest):
+async def login(req: LoginRequest, request: Request):
+    client_ip = _request_client_ip(request)
+    if not await rate_limiter.check(f"rl:login-ip:{client_ip}", _LOGIN_IP_LIMIT, _LOGIN_WINDOW_S):
+        raise HTTPException(429, "too many login attempts")
+    account = (req.email or "").strip().lower()
+    if account and not await rate_limiter.check(
+        f"rl:login-acct:{account}", _LOGIN_ACCOUNT_LIMIT, _LOGIN_WINDOW_S
+    ):
+        raise HTTPException(429, "too many login attempts")
     async with async_session_factory() as s:
         res = await s.execute(select(models.User).where(models.User.username == req.email))
         u = res.scalar_one_or_none()
@@ -1597,9 +1621,14 @@ async def assets(path: str):
 
     from fastapi.responses import FileResponse
     for base in ("apps/web/dist", "/srv/lumi/apps/web/dist"):
-        p = f"{base}/assets/{path}"
-        if _os.path.exists(p):
-            return FileResponse(p)
+        assets_root = _os.path.realpath(_os.path.join(base, "assets"))
+        candidate = _os.path.realpath(_os.path.join(assets_root, path))
+        # Containment: the resolved path must stay inside the assets root.
+        # Blocks ../ traversal and symlink escapes (fail closed → 404).
+        if candidate != assets_root and not candidate.startswith(assets_root + _os.sep):
+            continue
+        if _os.path.isfile(candidate):
+            return FileResponse(candidate)
     raise HTTPException(404)
 
 

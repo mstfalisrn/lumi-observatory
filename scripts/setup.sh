@@ -76,15 +76,15 @@ gen_hex() {
 
 hash_password() {
   local pw="$1"
-  python3 -c "
+  # Password reaches Python via the environment, never interpolated into source
+  # (a password with quotes or $ must not break or alter the script).
+  LUMI_HASH_PW="$pw" python3 - <<'PY'
 import hashlib, os
-pw = '''${pw}'''.replace(\"'\", \"''\")  # not perfect but pw from read is safe
-import sys
-pw = sys.argv[1]
+pw = os.environ["LUMI_HASH_PW"]
 salt = os.urandom(16)
-dk = hashlib.pbkdf2_hmac('sha256', pw.encode(), salt, 240000)
-print(f'pbkdf2_sha256\$240000\${salt.hex()}\${dk.hex()}')
-" "$pw"
+dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 240000)
+print(f"pbkdf2_sha256${240000}${salt.hex()}${dk.hex()}")
+PY
 }
 
 get_env_val() {

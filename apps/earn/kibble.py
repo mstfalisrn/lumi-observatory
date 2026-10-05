@@ -42,12 +42,13 @@ from pathlib import Path
 
 import httpx
 
-sys.path.insert(0, "/opt/lumi-observatory")
+REPO = Path(os.environ.get("LUMI_REPO_ROOT") or Path(__file__).resolve().parents[2])
+sys.path.insert(0, str(REPO))
 
 try:  # the worker runs outside the compose stack, so it reads the repo .env itself
     from dotenv import load_dotenv
 
-    load_dotenv("/opt/lumi-observatory/.env", override=False)
+    load_dotenv(REPO / ".env", override=False)
 except Exception:
     pass
 

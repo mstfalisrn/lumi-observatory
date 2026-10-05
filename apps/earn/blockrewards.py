@@ -36,7 +36,7 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path("/opt/lumi-observatory")
+REPO = Path(os.environ.get("LUMI_REPO_ROOT") or Path(__file__).resolve().parents[2])
 for p in (str(REPO), str(REPO / "packages")):
     if p not in sys.path:
         sys.path.insert(0, p)
@@ -53,7 +53,7 @@ import httpx
 BASE = (os.environ.get("TECHNOCORE_BASE_URL") or "https://technocore.chat").rstrip("/")
 BOARD = "tclk-offers"
 FEED = "d-blockrewards-feed"
-KEY_PATH = os.environ.get("TECHNOCORE_ED25519_KEY_PATH", "/opt/lumi-secrets/did.ed25519")
+KEY_PATH = os.environ.get("TECHNOCORE_ED25519_KEY_PATH") or str(REPO / "secrets" / "did.ed25519")
 STATE = Path(os.environ.get("BR_STATE", "/var/lib/lumi-earn/blockrewards.json"))
 PER_HOUR = int(os.environ.get("BR_PER_HOUR", "30"))
 POLL_S = float(os.environ.get("BR_POLL_S", "6"))
@@ -276,7 +276,17 @@ class Worker:
             log(f"ACCEPT failed {type(e).__name__}: {str(e)[:120]}")
             return
         self.st["accepts"].append(time.time())
-        self.pending[contract] = {"preimage": preimage, "phase": "accepted", "ref": oid, "room": room}
+        self.pending[contract] = {
+            "preimage": preimage,
+            "phase": "accepted",
+            "ref": oid,
+            "room": room,
+            # verification context for a later lock (fail-closed reveal)
+            "payer": str(offer.get("author") or frame.get("from") or ""),
+            "rails": [str(r) for r in (frame.get("rails") or [])],
+            "amount": frame.get("amount"),
+            "asset": frame.get("asset"),
+        }
         try:
             await c.signed_post(room, build_heartbeat(sender=sender, contract=contract, nonce=new_nonce(), note="lumi blockrewards worker"))
             await c.signed_post(room, build_delivery(contract=contract, body=answer))
@@ -285,6 +295,43 @@ class Worker:
             log(f"DELIVERED {contract[:18]} → {room}")
         except Exception as e:
             log(f"delivery failed {type(e).__name__}: {str(e)[:120]}")
+
+    def _claim_rails(self) -> set[str]:
+        """Rails we will claim on — mirrors the scheduler's gate (env-driven)."""
+        raw = os.environ.get("TCLK_AGENT_RAILS") or os.environ.get("BR_CLAIM_RAILS") or "flop-htlc,paper"
+        return {r.strip() for r in raw.split(",") if r.strip()}
+
+    def _lock_verified(self, frame, p: dict) -> bool:
+        """A lock may only trigger the reveal when it is a venue-verified
+        commitment that binds to THIS deal; anything else stays pending.
+
+        Checks (all must hold):
+          - the frame arrived on the signed lane (venue-verified, not raw bytes)
+          - the rail is one we claim on
+          - the ref matches the contract or the offer id we accepted
+          - when the offer's author is known, the lock comes from that payer
+        """
+        contract = str(getattr(frame, "contract", "") or "")
+        if not getattr(frame, "signed", False):
+            log(f"lock REJECTED (unsigned) {contract[:18]}")
+            return False
+        from connectors.tclk import ref_matches
+
+        d = frame.data or {}
+        rail = str(d.get("rail") or "")
+        if rail not in self._claim_rails():
+            log(f"lock REJECTED (rail={rail or '-'}) {contract[:18]}")
+            return False
+        ref = str(d.get("ref") or "")
+        if not ref or not (ref_matches(ref, p.get("ref", "")) or ref_matches(ref, contract)):
+            log(f"lock REJECTED (ref mismatch) {contract[:18]}")
+            return False
+        payer = str(d.get("from") or "")
+        expected = str(p.get("payer") or "")
+        if expected and payer and payer != expected:
+            log(f"lock REJECTED (payer mismatch) {contract[:18]}")
+            return False
+        return True
 
     async def reveal(self, client: httpx.AsyncClient, contract: str) -> None:
         from connectors.tclk import build_reveal
@@ -332,6 +379,8 @@ class Worker:
                 if frame is None:
                     continue
                 if frame.kind == "lock" and frame.contract == contract and p["phase"] == "delivered":
+                    if not self._lock_verified(frame, p):
+                        continue
                     await self.reveal(client, contract)
                 elif frame.kind == "refund" and frame.contract == contract:
                     log(f"REFUNDED by payer {contract[:18]} (offer did not settle)")

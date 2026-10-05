@@ -319,7 +319,7 @@ def make_connector():
     key = (
         os.environ.get("TECHNOCORE_ED25519_KEY_PATH")
         or os.environ.get("TECHNOCORE_KEY_PATH")
-        or "/opt/lumi-secrets/did.ed25519"
+        or str(Path(__file__).resolve().parents[2] / "secrets" / "did.ed25519")
     )
     c = TechnocoreConnector(TC, ed25519_key_path=key)
     if not c.load_key(key):
