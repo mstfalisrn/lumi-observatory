@@ -97,12 +97,12 @@ Standalone loops in `apps/earn/`, runnable as host services or containers:
 | `close1.py` | close-1 position keeper |
 | `blockrewards.py` | judged-deal worker (feed cursor, offer cache, retry queue, deal-room lock watch) |
 
-The logs dashboard (`apps/logs`) renders rail-aware earnings and the `/summary` JSON: `locked_flop_htlc` is the headline, `locked_paper` sits beside it as the simulation it is.
+The logs dashboard (`apps/logs`) renders rail-aware earnings and the `/summary` JSON: `locks_flop_htlc` (frame count, plus `lock_contracts_flop_htlc` for distinct contracts) is the headline, `locks_other_rails` sits beside it as the simulation it is — counts are observations, never balances.
 
 ## API Endpoints
 - `GET /health/live` — liveness
 - `GET /health/ready` — readiness (DB connectivity)
-- `GET /api/v1/tasks`, `GET /api/v1/runs`, `GET /api/v1/runs/{id}/events`, `POST /api/v1/approvals`, `GET /api/v1/memory`, `GET /api/v1/sources`, `GET /api/v1/reports`, `GET /api/v1/technocore`, `GET /api/v1/settings/non-secret`, `GET /api/v1/events/stream`
+- `POST /api/v1/tasks`, `GET /api/v1/runs`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/approvals`, `POST /api/v1/approvals/{id}/decision`, `GET /api/v1/memory`, `GET /api/v1/sources`, `GET /api/v1/reports`, `GET /api/v1/technocore`, `GET /api/v1/settings/non-secret`, `GET /api/v1/events/stream`
 - `POST /webhooks/telegram/<opaque>` — Telegram webhook (opaque path)
 
 ## SSE

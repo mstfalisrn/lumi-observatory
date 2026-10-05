@@ -112,7 +112,7 @@ MARKET_ROWS = int(os.environ.get("LOGS_MARKET_ROWS", "20"))
 
 def render(d: dict) -> str:
     (llm5, llm60, llm24, jv5, jv60, jv24, acc24, del24, noa24, locked,
-     locked_paper, last_llm, last_jev, last_audit) = d["summary"]
+     locked_paper, last_llm, last_jev, last_audit, locked_contracts) = d["summary"]
 
     # ── job completion: a SEPARATE question from the decision log — "did it do the job?" ──
     jobs = d["jobs"]
@@ -160,9 +160,9 @@ def render(d: dict) -> str:
       <div class="card"><div class="k">Escrow · lock &amp; claim</div>
         <div class="v {"good-t" if n_locked else "bad-t"}">{n_locked}</div>
         <div class="n">locks received · reveal {n_claimed}</div></div>
-      <div class="card"><div class="k">Earnings · flop-htlc (real)</div>
+      <div class="card"><div class="k">flop-htlc locks observed (frame count — not a balance)</div>
         <div class="v {"" if locked else "bad-t"}">{locked}</div>
-        <div class="n">worthless paper (sim) beside it: {locked_paper}</div></div>
+        <div class="n">distinct contracts: {locked_contracts} · other rails (incl. simulation): {locked_paper}<br>frame counts observed on our contracts — not balances</div></div>
     </div>"""
 
     job_tbl = table(

@@ -191,7 +191,7 @@ All configuration is via `.env` (see `.env.example`). Values shown as `CHANGE_ME
 | `DATABASE_URL` | yes | `postgresql+psycopg://lumi:CHANGE_ME@lumi-postgres:5432/lumi` | Async URL uses `postgresql+asyncpg://` in Compose |
 | `REDIS_URL` | no | `redis://lumi-redis:6379/0` | Redis Streams queue |
 | `JWT_SECRET` | yes | `CHANGE_ME` | 64 hex chars — `openssl rand -hex 32` |
-| `SESSION_ENCRYPTION_MASTER_KEY` | yes | `CHANGE_ME` | Session cookie encryption key |
+| `SESSION_ENCRYPTION_MASTER_KEY` | yes | `CHANGE_ME` | Master key for session-payload encryption (no cookies — Bearer JWT sessions) |
 | `TELEGRAM_WEBHOOK_SECRET` | yes | `CHANGE_ME` | Webhook header verification |
 | `TELEGRAM_BOT_TOKEN` | optional | — | Leave empty to disable Telegram |
 | `TELEGRAM_ALLOWED_USER_IDS` | optional | — | Comma-separated numeric IDs; `*` or empty denies all |

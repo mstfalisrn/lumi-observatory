@@ -2,6 +2,16 @@
 Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [1.2.0] - 2026-10-05
+### Security
+- Earnings semantics are explicit: the summary keys are `locks_flop_htlc` / `lock_contracts_flop_htlc` / `locks_other_rails` with a frame-count note — the UI and the standalone page label them as observations, never balances
+- External-audit follow-up: `/assets/{path}` containment (G01), dedicated login rate limiter (G02), verified-lock-gated reveal in the blockrewards worker (G03), dependency upgrades driven by `pip-audit` (G04: Starlette/`python-multipart`/cryptography/PyJWT/PyNaCl/orjson/python-dotenv/pytest fixed lines), the SSRF-validated IP is now the actual TCP destination (G05), session revocation via `users.token_version` with logout/password-change/deactivation taking effect immediately (G06), a byte-cap middleware that covers chunked bodies without Content-Length (G07), token-gated + redacting + least-privilege logs dashboard on a read-only non-root container (G08), and a history-aware secret scanner with token-level filtering, archive extraction and fail-closed reads (G09)
+- Restart recovery: the blockrewards worker persists non-secret pending records and re-derives the claim preimage, so a delivered deal survives a restart and still reveals when the lock arrives (F01)
+- Registration reports a structured `OUTCOME=` and only claims success on a verified identity note; the wizard keys off the exit code, not the presence of a `DID=` line (F03)
+- `secret-scan.sh --history` walks every blob of every ref; CI runs it on a full clone
+- `.dockerignore` blocks env backups/variants exactly like `.gitignore`
+
 ### Added
 - tclk exact-answer solver families (`apps/scheduler/tclk_solver.py`): `tip` (the single word the brief asks for), `validation` (verdict + the exact discrepancy), and `protocol` — a transcript fold that reports the final deal state plus any rejected frame, ported from the reference `@flop-labs/tclk` machine/frames/locks (`apps/scheduler/br_fold.py`), fail-closed and offline-testable
 - Blockrewards worker (`apps/earn/blockrewards.py`): follows the judged-deal feed, caches offer frames from the board (backfill + live cursor), answers each brief deterministically, then runs the deal end to end — accept, heartbeat, delivery, reveal, receipt — with a retry queue, per-offer dedupe, and a deal-room lock watch; funded payout offers are watched on the same loop

@@ -81,7 +81,12 @@ SELECT
        AND coalesce(f.rail, '') <> 'flop-htlc'),
   (SELECT max(evaluated_at) FROM agent_evaluations),
   (SELECT max(created_at) FROM tclk_offer_audits WHERE jev_ran),
-  (SELECT max(created_at) FROM tclk_offer_audits)
+  (SELECT max(created_at) FROM tclk_offer_audits),
+  (SELECT count(DISTINCT f.contract) FROM tclk_frames f
+     JOIN tclk_offer_audits a ON a.contract = f.contract
+     WHERE f.contract <> '' AND a.contract <> ''
+       AND f.kind IN ('lock', 'settle', 'payment', 'receipt')
+       AND f.rail = 'flop-htlc')
 """
 
 LLM_SQL = """
@@ -319,7 +324,7 @@ def _rows(rows: list[tuple]) -> list[list]:
 def json_summary(d: dict) -> dict:
     """The machine contract (same shape as the standalone service's /summary)."""
     (llm5, llm60, llm24, jv5, jv60, jv24, acc24, del24, noa24, locked,
-     locked_paper, last_llm, last_jev, last_audit) = d["summary"]
+     locked_paper, last_llm, last_jev, last_audit, locked_contracts) = d["summary"]
     return {
         "llm": {"last_5m": llm5, "last_1h": llm60, "last_24h": llm24,
                 "last_record": _iso(last_llm),
@@ -329,7 +334,16 @@ def json_summary(d: dict) -> dict:
                 "running": is_fresh(last_jev)},
         "tclk": {"last_offer": _iso(last_audit),
                  "accepted_24h": acc24, "delivered_24h": del24, "unanswered_24h": noa24},
-        "earnings": {"locked_flop_htlc": locked, "locked_paper": locked_paper},
+        "earnings": {
+            # These are OBSERVED FRAME COUNTS on our contracts — not wallet
+            # balances and not verified settlements. One contract can carry
+            # lock+settle+payment+receipt frames, so the distinct-contract count
+            # is the meaningful "deals" number; an amount is never assumed.
+            "locks_flop_htlc": locked,
+            "lock_contracts_flop_htlc": locked_contracts,
+            "locks_other_rails": locked_paper,
+            "note": "frame counts observed on our contracts — not balances or verified settlements",
+        },
         "spend": {
             "calls_1h": int(d["usage"][0] or 0),
             "tokens_1h": int(d["usage"][1] or 0),

@@ -253,7 +253,7 @@ Notes:
 | `DATABASE_URL` | yes | `postgresql+psycopg://lumi:CHANGE_ME@lumi-postgres:5432/lumi` | Async variant uses `postgresql+asyncpg://` |
 | `REDIS_URL` | no | `redis://lumi-redis:6379/0` | Redis Streams queue |
 | `JWT_SECRET` | yes | `CHANGE_ME` | 64 hex chars — `openssl rand -hex 32` |
-| `SESSION_ENCRYPTION_MASTER_KEY` | yes | `CHANGE_ME` | Session cookie encryption |
+| `SESSION_ENCRYPTION_MASTER_KEY` | yes | `CHANGE_ME` | Master key for session-payload encryption (HKDF source; no cookies are used — the web session is a Bearer JWT) |
 | `RUN_MAX_ITERATIONS` | no | `40` | Agentic loop iteration budget |
 | `RUN_MAX_WALL_SECONDS` | no | `900` | Wall-clock timeout (seconds) |
 | `RUN_MAX_TOKEN_BUDGET` | no | `200000` | Token budget per run |
@@ -306,13 +306,13 @@ first decision layer; the chat LLM then only runs on the uncertain band.
 | `JEV_TIMEOUT_SECONDS` | `15` | Per-call timeout |
 | `JEV_AUTO_THRESHOLD` | `0.90` | ≥ this confidence: act on the decision |
 | `JEV_REVIEW_THRESHOLD` | `0.60` | ≥ this: escalate (human/LLM); below: drop |
-| `JEV_MAX_CALLS_PER_MINUTE` | `60` | Spike guard |
+| `JEV_MAX_CALLS_PER_MINUTE` | `24` | Spike guard (kept under the gateway's ~30/window) |
 | `JEV_DAILY_CALL_CAP` | `20000` | Budget guard (~$0.40/day) |
 | `JEV_COST_PER_MTOK_INPUT` | `0.042` | Input price used to estimate per-call cost |
 | `JEV_EVALUATOR_ENABLED` | `false` | Lobby risk triage |
 | `JEV_POLICY_ENABLED` | `false` | Tool-call policy pre-check (can only tighten) |
 | `JEV_TCLK_ENABLED` | `false` | tclk offer legitimacy veto |
-| `JEV_TCLK_REQUIRE_LEGIT` | `false` | When true, low legitimacy alone vetoes an offer |
+| `JEV_TCLK_REQUIRE_LEGIT` | `true` | When true, low legitimacy alone vetoes an offer |
 | `JEV_POLICY_TOOLS` | read-only tools | Which tools the policy pre-check watches |
 | `JEV_ESCALATE_TO_LLM` | `true` | Uncertain evaluator band escalates to the chat LLM |
 
@@ -438,6 +438,7 @@ watch. It reads its settings from the environment:
 | `BR_BACKFILL` | `20000` | Board messages replayed on first run to warm the offer cache |
 
 **Dashboard.** `apps/logs/app.py` renders a live page plus `/summary` (JSON).
-Earnings are counted **per rail**: `locked_flop_htlc` is the headline,
-`locked_paper` is shown separately as the simulation it is — simulated deals
+Earnings are counted **per rail**: `locks_flop_htlc` (with
+`lock_contracts_flop_htlc` for distinct deals) is the headline,
+`locks_other_rails` is shown separately as the simulation it is — simulated deals
 can never read as money.

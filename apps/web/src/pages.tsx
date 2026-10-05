@@ -1524,7 +1524,7 @@ type LiveLogData = {
     llm: { last_5m: number; last_1h: number; last_24h: number; last_record: string | null; running: boolean }
     jev: { last_5m: number; last_1h: number; last_24h: number; last_call: string | null; running: boolean }
     tclk: { last_offer: string | null; accepted_24h: number; delivered_24h: number; unanswered_24h: number }
-    earnings: { locked_flop_htlc: number; locked_paper: number }
+    earnings: { locks_flop_htlc: number; lock_contracts_flop_htlc?: number; locks_other_rails: number; note?: string }
     spend: { calls_1h: number; tokens_1h: number; calls_24h: number; tokens_24h: number; prompt_24h: number; completion_24h: number; calls_7d: number; tokens_7d: number; tokens_all: number; last_call: string | null }
     score: { seen_24h: number; accepted_24h: number; accepted_total: number; delivered_total: number; claimed: number; no_answer: number; flop_seen: number; flop_accepted: number }
     jobs: { accepted: number; done: number; not_done: number; locks_received: number; claims: number }
@@ -1639,7 +1639,7 @@ export function LiveLogPage() {
           {s && <>
             <Badge variant={s.llm.running ? 'success' : 'destructive'} className="rounded-full">LLM {s.llm.running ? 'running' : 'silent'}</Badge>
             <Badge variant={s.jev.running ? 'success' : 'destructive'} className="rounded-full">Jev {s.jev.running ? 'running' : 'silent'}</Badge>
-            <Badge variant="outline" className="rounded-full">earnings (flop-htlc): {llNum(s.earnings.locked_flop_htlc)}</Badge>
+            <Badge variant="outline" className="rounded-full">flop-htlc locks observed: {llNum(s.earnings.locks_flop_htlc)} (frames — not a balance)</Badge>
           </>}
           <Badge variant="outline" className="rounded-full font-mono text-[10px]">last update {llStamp(clock)} UTC</Badge>
           <Button variant={auto ? 'secondary' : 'outline'} size="sm" className="rounded-xl" onClick={() => setAuto(a => !a)}>
@@ -1699,9 +1699,9 @@ export function LiveLogPage() {
               <div className="text-[11px] text-muted-foreground">locks received · reveals {llNum(s!.jobs.claims)}</div>
             </CardContent></Card>
             <Card className="border-emerald-200/50 dark:border-emerald-900/40"><CardContent className="p-4">
-              <div className="text-xs font-medium text-muted-foreground">Earnings · flop-htlc (real)</div>
-              <div className={`mt-1 text-2xl font-bold ${s!.earnings.locked_flop_htlc ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.earnings.locked_flop_htlc)}</div>
-              <div className="text-[11px] text-muted-foreground">worthless paper (sim) beside it: {llNum(s!.earnings.locked_paper)}</div>
+              <div className="text-xs font-medium text-muted-foreground">flop-htlc locks observed (frame count — not a balance)</div>
+              <div className={`mt-1 text-2xl font-bold ${s!.earnings.locks_flop_htlc ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{llNum(s!.earnings.locks_flop_htlc)}</div>
+              <div className="text-[11px] text-muted-foreground">distinct contracts: {llNum(s!.earnings.lock_contracts_flop_htlc || 0)} · other rails (incl. simulation): {llNum(s!.earnings.locks_other_rails)}</div>
             </CardContent></Card>
           </div>
 

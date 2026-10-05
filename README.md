@@ -1,7 +1,7 @@
 # LUMI Agentic Observatory
 
 [![CI](https://github.com/mstfalisrn/lumi-observatory/actions/workflows/ci.yml/badge.svg)](https://github.com/mstfalisrn/lumi-observatory/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue)](./CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Docker](https://img.shields.io/badge/docker-compose-ready-blue)](./docker-compose.yml)
@@ -44,7 +44,7 @@ On top of that runtime it ships a **market agent for the FLOP / technocore.chat 
 - **Trust Center UI** — Tier distribution (SAFE / WATCH / RISKY / DANGEROUS), live monitoring and alert state, capability manifest browser, and evaluation history with remote message previews explicitly labeled *untrusted*.
 - **Live SSE stream** — `GET /api/v1/events/stream` (`text/event-stream`) with `Last-Event-ID` / `global_seq` cursor, auto-reconnect, and DB-backed global ordering.
 - **Web UI** — Runs, context inspector, approvals, settings, and onboarding wizard (Tailwind 4 + shadcn/ui, light/dark tokens, SSE pulse).
-- **Production-ready hygiene** — Non-root, read-only containers, `cap_drop: ALL`, isolated networks, secret scanning, and CI gates.
+- **Hardened defaults** — API/worker/scheduler/migrate/logs run unprivileged with a read-only root filesystem, `cap_drop: ALL` and `no-new-privileges` (the nginx gateway master is the documented exception); secret scanning runs on the tree and the full history in CI. Not a penetration-test guarantee — see [SECURITY.md](./SECURITY.md).
 
 ---
 
@@ -113,7 +113,7 @@ Each layer can only tighten the decision — none of them can widen it. Every of
 | `lumi-postgres` | PostgreSQL 16 + pgvector — durable state, vectors, append-only events | internal |
 | `lumi-redis` | Redis 7 — Streams queue/DLQ, coordination, cursors | internal |
 
-All runtime containers run as non-root, read-only filesystem, `cap_drop: ALL`, `no-new-privileges`. Only `lumi-gateway` is bound to the host (`127.0.0.1:${GATEWAY_PORT:-3525}` — override with `GATEWAY_PORT` env).
+`lumi-api`, `lumi-worker`, `lumi-scheduler`, `lumi-migrate` and `lumi-logs` run as UID 10001 with a read-only root filesystem, `cap_drop: ALL` and `no-new-privileges`. The nginx gateway terminates on `127.0.0.1:${GATEWAY_PORT:-3525}` (its master process runs as root inside the container — documented exception); PostgreSQL is published on loopback `127.0.0.1:${POSTGRES_HOST_PORT:-5433}` and the logs dashboard on `127.0.0.1:${LOGS_PORT_HOST:-3590}`. All host bindings are loopback-only.
 
 Optional host loops (systemd units in `infra/` or plain `python apps/earn/<loop>.py`):
 
@@ -126,7 +126,7 @@ Optional host loops (systemd units in `infra/` or plain `python apps/earn/<loop>
 
 ---
 
-## Quick Start (60 seconds)
+## Quick Start
 
 **Prerequisites:** Docker Engine 24+, Compose v2.20+, 4 GB RAM (8 GB recommended), 10 GB disk, port `3525` free. See [docs/INSTALL.md](./docs/INSTALL.md) for details.
 
@@ -212,7 +212,7 @@ LUMI uses a single `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY`
 | **LM Studio (local)** | `openai_compatible` | `http://host.docker.internal:1234/v1` | `local-model` | `lm-studio` |
 | **vLLM / SGLang (self-hosted)** | `openai_compatible` | `http://host.docker.internal:8000/v1` | `your-model` | `CHANGE_ME` or key |
 
-> **Full coverage:** The table above shows the most-used presets. LUMI's `openai_compatible` provider works with **any** OpenAI-compatible endpoint, so all 40+ providers are supported — see [docs/CONFIGURATION.md](./docs/CONFIGURATION.md) for the complete provider mapping (Nous Portal, Claude Max OAuth, Grok OAuth, Bedrock, Vertex, Azure, OpenCode, Ramp, Novita, Arcee, Nebius, GMI, Tencent, StepFun, NVIDIA Build, and more).
+> **Full coverage:** The table above shows the most-used presets. LUMI's `openai_compatible` provider works with **any** OpenAI-compatible endpoint, so the adapter is verified with the providers in the quick-start table; the remaining 40+ providers work through the same generic adapter (illustrative — not individually tested here) — see [docs/CONFIGURATION.md](./docs/CONFIGURATION.md) for the complete provider mapping (Nous Portal, Claude Max OAuth, Grok OAuth, Bedrock, Vertex, Azure, OpenCode, Ramp, Novita, Arcee, Nebius, GMI, Tencent, StepFun, NVIDIA Build, and more).
 
 ```bash
 # .env — OpenAI example
@@ -534,12 +534,12 @@ CI runs on every push/PR to `master`: `pytest` (pgvector + Redis + coverage >= 7
 
 This project follows [Semantic Versioning](https://semver.org/) and [Keep a Changelog](https://keepachangelog.com/). The canonical version is defined in `packages/observability/__init__.py` (`__version__`) and tagged as `vMAJOR.MINOR.PATCH`.
 
-Current release: **v1.0.0** — see [CHANGELOG.md](./CHANGELOG.md).
+Current release: **v1.2.0** — see [CHANGELOG.md](./CHANGELOG.md).
 
 To cut a new release:
 
 ```bash
-gh release create v1.0.0 --generate-notes
+gh release create v1.2.0 --generate-notes
 ```
 
 ---
