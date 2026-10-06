@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import UTC, datetime
 
 TCLK_DOMAIN = "FLOP::tclk::v1"
 OFFER_ROOM = "tclk-offers"
@@ -394,16 +395,25 @@ ROW_RE = re.compile(
     re.S,
 )
 
+_UTC_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def _utc_milliseconds(iso_z: str) -> int:
+    """Convert a source timestamp ending in ``Z`` to epoch milliseconds."""
+    if not iso_z.endswith("Z"):
+        raise ValueError("source timestamp must end in Z")
+    stamp = datetime.fromisoformat(iso_z[:-1]).replace(tzinfo=UTC)
+    delta = stamp - _UTC_EPOCH
+    return (delta.days * 86_400 + delta.seconds) * 1_000 + delta.microseconds // 1_000
+
 
 def parse_material(text: str) -> list[dict] | None:
     """Rows: `<room> | <iso ts> | <did> | tclk1 {json}`, one per record, in order."""
     rows: list[dict] = []
     for m in ROW_RE.finditer(text):
         try:
-            from datetime import datetime
-
-            time_ms = int(datetime.strptime(m.group("ts")[:19], "%Y-%m-%dT%H:%M:%S").timestamp() * 1000)
-        except Exception:
+            time_ms = _utc_milliseconds(m.group("ts"))
+        except ValueError:
             return None
         rows.append({
             "room": m.group("room"),

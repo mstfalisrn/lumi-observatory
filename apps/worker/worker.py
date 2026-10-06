@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from sqlalchemy import select, text
@@ -17,20 +18,33 @@ from agent_core.llm import build_provider
 from agent_core.planner import Planner
 from agent_core.verifier import DefaultVerifier
 from context_engine.assembler import ContextAssembler
-from observability import models
+from observability import __version__, models
 from observability.config import settings
 
 # Fail-closed in production
 if settings.is_production:
     settings.validate_production()
-from observability.db import async_session_factory
+from observability.db import async_session_factory, dispose_engine
 from observability.events import CriticalEventPersistenceError, append_run_event_safe
 from observability.queue import ack, claim_pending, ensure_stream_group, read_group
 from policy.engine import PolicyEngine
 
 log = logging.getLogger("lumi.worker")
 
-app = FastAPI(title="LUMI Worker", version="1.0.0")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    try:
+        await _start()
+        yield
+    finally:
+        try:
+            await _stop()
+        finally:
+            await dispose_engine()
+
+
+app = FastAPI(title="LUMI Worker", version=__version__, lifespan=_lifespan)
 _worker: WorkerLoop | None = None
 
 
@@ -517,8 +531,25 @@ def rum_budget(run) -> int:
 _BG_TASKS: list = []
 
 
-@app.on_event("startup")
-async def _start():
+async def _start() -> None:
+    """Start the worker loop exactly once for the application lifespan."""
     global _worker
+    if _BG_TASKS:
+        return
     _worker = WorkerLoop()
     _BG_TASKS.append(asyncio.create_task(_worker.run()))
+
+
+async def _stop() -> None:
+    """Cancel and await worker background tasks before the event loop closes."""
+    global _worker
+    tasks = list(_BG_TASKS)
+    _BG_TASKS.clear()
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
+                log.warning("worker task exited with an error during shutdown", exc_info=result)
+    _worker = None

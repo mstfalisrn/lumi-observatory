@@ -24,6 +24,11 @@ async_session_factory = async_sessionmaker(
 )
 
 
+async def dispose_engine() -> None:
+    """Release all pooled database connections during application shutdown."""
+    await engine.dispose()
+
+
 async def get_session():
     async with async_session_factory() as session:
         yield session

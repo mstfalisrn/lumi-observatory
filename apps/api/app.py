@@ -19,7 +19,7 @@ from agent_core.skills import SkillRegistryError, load_skill_registry
 from memory.service import MemoryService
 from observability import __version__, models
 from observability.config import settings
-from observability.db import async_session_factory
+from observability.db import async_session_factory, dispose_engine
 from observability.digest_service import DigestService, DigestValidationError, validate_digest_payload
 from observability.security import redact
 from observability.source_monitor import (
@@ -76,24 +76,30 @@ async def _sync_admin_password(s, env_hash: str) -> None:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    # Fail-closed in production: require real secrets
-    settings.validate_production()
-    if settings.ADMIN_PASSWORD_HASH:
-        async with async_session_factory() as s:
-            await _sync_admin_password(s, settings.ADMIN_PASSWORD_HASH)
-    # Telegram Application singleton: build+initialize+start ONCE (for webhook)
     _tg = None
-    if settings.TELEGRAM_BOT_TOKEN:
+    try:
+        # Fail-closed in production: require real secrets
+        settings.validate_production()
+        if settings.ADMIN_PASSWORD_HASH:
+            async with async_session_factory() as s:
+                await _sync_admin_password(s, settings.ADMIN_PASSWORD_HASH)
+        # Telegram Application singleton: build+initialize+start ONCE (for webhook)
+        if settings.TELEGRAM_BOT_TOKEN:
+            try:
+                from agent_core.telegram import get_service
+
+                _tg = get_service()
+                await _tg.initialize()
+                log.info("Telegram Application initialized")
+            except Exception as e:
+                log.warning("Telegram initialize skipped (dev): %s", type(e).__name__)
+        yield
+    finally:
         try:
-            from agent_core.telegram import get_service
-            _tg = get_service()
-            await _tg.initialize()
-            log.info("Telegram Application initialized")
-        except Exception as e:
-            log.warning("Telegram initialize skipped (dev): %s", type(e).__name__)
-    yield
-    if _tg is not None:
-        await _tg.shutdown()
+            if _tg is not None:
+                await _tg.shutdown()
+        finally:
+            await dispose_engine()
 
 
 app = FastAPI(title="LUMI Agentic Observatory", version=__version__, lifespan=_lifespan)

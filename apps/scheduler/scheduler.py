@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 from fastapi import FastAPI
 from sqlalchemy import select
 
-from observability import models
+from observability import __version__, models
 from observability.config import settings
 
 # Fail-closed in production
 if settings.is_production:
     settings.validate_production()
-from observability.db import async_session_factory
+from observability.db import async_session_factory, dispose_engine
 from observability.events import append_run_event_in_session
+
+log = logging.getLogger("lumi.scheduler")
 
 # M3: AgentScorer hook — import without errors (apps.scheduler vs scheduler)
 try:
@@ -27,7 +31,19 @@ except ImportError:
         AgentScorer = None  # type: ignore
         _AGENT_SCORER_TASK = []  # type: ignore
 
-app = FastAPI(title="LUMI Scheduler", version="1.0.0")
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    try:
+        await _start()
+        yield
+    finally:
+        try:
+            await _stop()
+        finally:
+            await dispose_engine()
+
+
+app = FastAPI(title="LUMI Scheduler", version=__version__, lifespan=_lifespan)
 
 
 @app.get("/health/live")
@@ -288,14 +304,14 @@ async def _agent_scorer_loop() -> None:
             async with async_session_factory() as _s:
                 await scorer.poll_once(_s)
         except Exception as e:
-            import logging as _lg
-
-            _lg.getLogger("lumi.scheduler").warning("agent_scorer poll error: %s", type(e).__name__)
+            log.warning("agent_scorer poll error: %s", type(e).__name__)
         await asyncio.sleep(15)
 
 
-@app.on_event("startup")
-async def _start():
+async def _start() -> None:
+    """Start scheduler loops exactly once for the application lifespan."""
+    if _BG_TASKS or _AGENT_SCORER_TASK:
+        return
     loop = SchedulerLoop(interval_seconds=60)
     _BG_TASKS.append(asyncio.create_task(loop.run()))
     # M3: AgentScorer 15s poller
@@ -303,3 +319,17 @@ async def _start():
         _AGENT_SCORER_TASK.append(asyncio.create_task(_agent_scorer_loop()))
     except Exception:
         pass
+
+
+async def _stop() -> None:
+    """Cancel and await scheduler tasks before the event loop closes."""
+    tasks = [*_BG_TASKS, *_AGENT_SCORER_TASK]
+    _BG_TASKS.clear()
+    _AGENT_SCORER_TASK.clear()
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
+                log.warning("scheduler task exited with an error during shutdown", exc_info=result)
