@@ -3,6 +3,16 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-05
+### Security
+- API error responses no longer echo raw exception text (`jev/selfcheck`, LLM settings test) — details stay in the server log
+- The LLM settings test re-validates its target URL and pins the TCP connection to the SSRF-validated address in production
+- Static asset routes use explicit resolved-path containment (`pathlib`), matching the documented traversal guarantees
+- Repository security hardening: secret scanning + push protection, Dependabot alerts and automated security updates, and CodeQL (default setup) are active; all code-scanning findings are fixed or dismissed with a recorded rationale — 0 open alerts
+
+### Changed
+- Documentation consistency after external review: the gateway is consistently described as **Caddy** (`caddy:2.8` in compose), the host-exposure sentence in the README lists every loopback binding (gateway 3525, PostgreSQL 5433, logs 3590), the readiness note is unified to "DB connectivity" (matches `GET /health/ready`), and the operations guide references the real `setup.sh --reconfigure` secret flow
+
 ## [1.2.0] - 2026-10-05
 ### Security
 - Earnings semantics are explicit: the summary keys are `locks_flop_htlc` / `lock_contracts_flop_htlc` / `locks_other_rails` with a frame-count note — the UI and the standalone page label them as observations, never balances
