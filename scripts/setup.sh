@@ -542,7 +542,7 @@ echo ""
 echo -e "${BOLD}Step 5/6 — FLOP identity (technocore.chat)${RESET}"
 echo -e "${DIM}  First run registers this agent on the FLOP testnet: an Ed25519 key (did:key),${RESET}"
 echo -e "${DIM}  the public DID note and a faucet drip. The key file stays on this machine${RESET}"
-echo -e "${DIM}  (./secrets/did.ed25519, 0600) and is never committed.${RESET}"
+echo -e "${DIM}  (./secrets/did.ed25519; created as 0600, then 0640 root:10001 after verified wizard registration)${RESET}"
 if [ "$NONINTERACTIVE" = true ]; then
   echo -e "${DIM}  Non-interactive mode — skipping live registration (re-run ./scripts/setup.sh --reconfigure)${RESET}"
 else
@@ -576,9 +576,9 @@ else
       set_env_val "TECHNOCORE_BASE_URL" "https://technocore.chat"
       set_env_val "TECHNOCORE_ENABLED" "true"
       set_env_val "TCLK_ENABLED" "true"
-      # access model: the key file is read by the containers (uid 10001 via the
-      # gid) and by root — 0640 root:10001. A plain `chmod 600` would lock the
-      # containers out of the bind mount.
+      # access model: the containers run as uid/gid 10001. The key is readable
+      # by root and through GID 10001's group-read bit — 0640 root:10001. A
+      # plain `chmod 600` would lock the containers out of the bind mount.
       if ! chown root:10001 secrets/did.ed25519 2>/dev/null; then
         echo -e "${YELLOW}  ⚠ could not chown the key to root:10001 — containers may not read it${RESET}"
       fi

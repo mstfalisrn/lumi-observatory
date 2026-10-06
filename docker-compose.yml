@@ -208,7 +208,7 @@ services:
         max-size: "10m"
         max-file: "3"
     volumes:
-      # Technocore DID key (host) → read-only into container; must be readable by UID 10001 on host (0640 root:10001)
+      # Technocore DID key (host) → read-only into container; must be readable via GID 10001 on host (0640 root:10001)
       - ${TECHNOCORE_KEY_HOST_PATH:-./secrets/did.ed25519}:/run/secrets/technocore/did.ed25519:ro
     environment:
       APP_ENV: ${APP_ENV:-production}
@@ -283,7 +283,7 @@ services:
     read_only: true
     tmpfs: ["/tmp"]
     volumes:
-      # Technocore DID key (host) → read-only into container; must be readable by UID 10001 on host (0640 root:10001)
+      # Technocore DID key (host) → read-only into container; must be readable via GID 10001 on host (0640 root:10001)
       - ${TECHNOCORE_KEY_HOST_PATH:-./secrets/did.ed25519}:/run/secrets/technocore/did.ed25519:ro
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]

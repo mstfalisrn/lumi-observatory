@@ -3,6 +3,21 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-10-06
+### Fixed
+- Protocol transcript timestamps ending in `Z` are parsed as UTC and retain fractional-second precision, so expiry, refund and cancellation decisions no longer depend on the host timezone
+- Async SQLAlchemy test engines are disposed by explicit yield fixtures before their event loops close, and every FastAPI service disposes its pooled engine during shutdown, preventing `aiosqlite` worker-thread shutdown exceptions
+- Worker and scheduler use FastAPI lifespan startup/shutdown handlers and cancel/await background tasks cleanly
+- The SSE auth regression test uses client-level cookies, and the JWT negative-path fixture uses a SHA-256-safe test key length
+
+### Changed
+- All canonical Python, web, OpenAPI and README release fields now align on `1.2.2`
+- DID key documentation distinguishes initial `0600` creation from the post-registration `0640 root:10001` group-read bind-mount permission, including the required GID 10001 host-membership constraint
+
+### Testing
+- Added a non-UTC timezone regression test for protocol timestamp parsing, including millisecond preservation
+- Full PostgreSQL/Redis test suite, reversible migration path and coverage gate pass in isolation; the unit/security scope was additionally re-run with the addressed warning classes promoted to errors (`-W error::…`, verified on Python 3.11 and 3.12)
+
 ## [1.2.1] - 2026-10-05
 ### Security
 - API error responses no longer echo raw exception text (`jev/selfcheck`, LLM settings test) — details stay in the server log

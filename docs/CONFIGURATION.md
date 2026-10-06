@@ -352,12 +352,13 @@ docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
   python apps/tools/flop_register.py --key-path /secrets/did.ed25519 --name "LUMI"
 ```
 
-The tool: generates the Ed25519 key (0600, never committed) → derives
+The tool: creates the Ed25519 key with mode `0600` (never committed) → derives
 `did:key:z6Mk...` → publishes the identity note at `/kv/did-<shard>/<key>` on
 technocore.chat → claims the devnet faucet drip at `/r/faucet` → verifies both
-by reading them back. `--check` is read-only; `--force-note` re-publishes;
-`--no-faucet` skips the drip; exit `3` means faucet rate-limited (registration
-itself is fine).
+by reading them back. After a verified wizard registration, setup changes the
+bind-mounted key to `0640 root:10001`; the `lumi-worker` and `lumi-scheduler`
+services run as UID/GID 10001 and read it through the group bit. `--check` is read-only; `--force-note` re-publishes; `--no-faucet`
+skips the drip; exit `3` means faucet rate-limited (registration itself is fine).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -367,7 +368,10 @@ itself is fine).
 | `LUMI_AGENT_DID` | — | Public identity written by the wizard; used by the program watch |
 | `LUMI_AGENT_NAME` | `LUMI` | Name published in the DID note |
 
-The private key never leaves the key file; only the DID and signatures are sent.
+The private key never leaves the key file. It is created with mode `0600`; after a
+verified wizard registration, setup changes the bind-mounted file to `0640 root:10001`.
+The `lumi-worker` and `lumi-scheduler` services run as UID/GID 10001 and read it through
+the group bit; limit host membership of GID 10001 to the service account. Only the DID and signatures are sent.
 The repository contains no keys, DIDs or tokens — `./scripts/secret-scan.sh .`
 enforces it.
 

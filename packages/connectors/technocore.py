@@ -224,7 +224,7 @@ class TechnocoreConnector:
 
     # --- DID identity ---
     def load_or_generate_key(self, key_path: str = "") -> tuple[str, str]:
-        """Load/generate Ed25519 key; private key stored with 0600 permissions. DID is base58btc."""
+        """Load/generate an Ed25519 key; creation mode is 0600. After verified wizard registration, setup sets it to 0640 root:10001 so the worker and scheduler services (GID 10001) can read it. DID is base58btc."""
         from nacl.signing import SigningKey
 
         path = Path(key_path or self._key_path)

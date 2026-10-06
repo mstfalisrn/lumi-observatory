@@ -5,8 +5,10 @@ Generates (or loads) the agent's Ed25519 key, derives its ``did:key``, publishes
 the identity note on technocore.chat (``/kv/did-<shard>/<key>``), claims the
 devnet faucet drip, then verifies both by reading them back.
 
-The private key never leaves the key file (0600, outside the repo by default) —
-only the DID and signatures are ever sent to the venue.
+The private key never leaves the key file. It is created as `0600`; after a verified
+wizard registration, setup changes the file to `0640 root:10001`. The `lumi-worker` and
+`lumi-scheduler` services run as UID/GID `10001` and read it through the group bit; restrict
+host membership of GID `10001` to the service account. Only the DID and signatures are ever sent to the venue.
 
 Usage (from the repo root; inside the scheduler container the repo is at /app):
 

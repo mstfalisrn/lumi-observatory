@@ -1,7 +1,7 @@
 # LUMI Agentic Observatory
 
 [![CI](https://github.com/mstfalisrn/lumi-observatory/actions/workflows/ci.yml/badge.svg)](https://github.com/mstfalisrn/lumi-observatory/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.2.0-blue)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.2-blue)](./CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Docker](https://img.shields.io/badge/docker-compose-ready-blue)](./docker-compose.yml)
@@ -36,7 +36,7 @@ On top of that runtime it ships a **market agent for the FLOP / technocore.chat 
 - **Durable Telegram inbox** — Webhook receiver with opaque path, `X-Telegram-Bot-Api-Secret-Token` verification, and idempotent `update_id` handling.
 - **Memory with pgvector** — Candidate → approved/active lifecycle with embedding retrieval (`pgvector`) at task start; superseded/expired archival keeps history intact.
 - **Bounded capabilities (skills)** — Source-controlled JSON manifests (`skills/*.json`) declare which tools a capability may call and which scope fields are required. An operator picks a skill and an explicit target (approved HTTPS URL, `owner/repository`, or configured room) before a run; the planner rejects out-of-scope targets before execution, and unknown tools never reach the registry.
-- **FLOP identity & registration** — `apps/tools/flop_register.py` (wired into wizard Step 5) generates the Ed25519 key at `./secrets/did.ed25519` (0600, never committed), derives the `did:key`, publishes the identity note at `/kv/did-<shard>/<key>` on technocore.chat, claims the faucet drip, and verifies both by reading them back. `--check` reports status read-only; `--reconfigure` re-runs any time.
+- **FLOP identity & registration** — `apps/tools/flop_register.py` (wired into wizard Step 5) creates the Ed25519 key at `./secrets/did.ed25519` with mode `0600`; after a verified wizard registration, setup changes it to `0640 root:10001`; the `lumi-worker` and `lumi-scheduler` services run as UID/GID 10001 and read the read-only bind mount through the group bit. It derives the `did:key`, publishes the identity note at `/kv/did-<shard>/<key>` on technocore.chat, claims the faucet drip, and verifies both by reading them back. `--check` reports status read-only; `--reconfigure` re-runs any time.
 - **tclk market agent (layered, fail-closed)** — Deterministic audit, Jev veto, operator risk ceiling, brief resolution, lane rate limits, concurrency caps and rail filtering. The value-rail profile is `flop-htlc`; the judged-program profile adds `paper` behind an amount cap so funded judged work can be served while five-hundred-thousand-denomination bot floods stay out. A deterministic solver answers the exact-answer families (tip, protocol transcript fold, validation, math, `/kv` note, HTTP probe, documentation) before the model is ever asked; accepted deals run end to end to reveal and receipt, and a dedicated judged-deal worker (`apps/earn/blockrewards.py`) works the same loop against a judged-deal feed.
 - **Earning loops** — `apps/earn/trader.py` (flopmarket participation + coherence checks + news watch), `apps/earn/kibble.py` (kibble JOB → CLAIM → RESULT loop), `apps/earn/close1.py` (close-1 position keeper), each runnable standalone or under systemd.
 - **Live Log module + rail-aware earnings dashboard** — the **Live Log** tab in the web UI (`GET /api/v1/live/log`) renders everything the earning loops do: LLM/Jev decisions, token spend, market flow, job completion and the earnings table. Locked value is counted **per rail**: `flop-htlc` is the real counter, `paper` gets its own "worthless (sim)" counter. The same data layer (`packages/observability/live_log.py`) backs the optional standalone page (`apps/logs`) and the machine contract at `/api/v1/live/summary`.
@@ -264,7 +264,7 @@ docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
   python apps/tools/flop_register.py --check --key-path /secrets/did.ed25519
 ```
 
-The private key never leaves `./secrets/did.ed25519` (0600, gitignored); only the DID and signatures are sent. The identity note is written to `/kv/did-<shard>/<key>` and the faucet claim to `/r/faucet`; both are verified by reading them back.
+The private key never leaves `./secrets/did.ed25519` and is gitignored. The registration tool creates it with mode `0600`; after a verified wizard registration, setup changes it to `0640 root:10001`; the `lumi-worker` and `lumi-scheduler` services run as UID/GID 10001 and read the read-only bind mount through the group bit. Only the DID and signatures are sent. The identity note is written to `/kv/did-<shard>/<key>` and the faucet claim to `/r/faucet`; both are verified by reading them back.
 
 ### tclk market agent
 
@@ -349,7 +349,7 @@ docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
 # FAUCET=posted: claim posted — the drip lands within minutes
 ```
 
-What it does, in order: generate the Ed25519 key (0600, outside the repo) → derive `did:key` → publish the identity note on technocore.chat → claim the devnet faucet drip → verify both by reading them back. Re-run `--check` to see the faucet balance and note status; `--force-note` re-publishes the note.
+What it does, in order: generate the Ed25519 key with mode `0600` (gitignored, never committed) → derive `did:key` → publish the identity note on technocore.chat → claim the devnet faucet drip → verify both by reading them back; after a verified wizard registration the setup wizard sets the bind-mounted key to `0640 root:10001`, and the `lumi-worker` and `lumi-scheduler` services read it through primary GID 10001. Re-run `--check` to see the faucet balance and note status; `--force-note` re-publishes the note.
 
 ### 3. Run a bounded observation task
 
@@ -449,7 +449,7 @@ curl -s http://localhost:3525/health/ready
 - **Tool isolation** — Only declared, schema-validated connectors; no arbitrary shell or Docker access.
 - **SSRF protection** — Loopback/RFC1918/link-local/metadata/socket/internal hostnames are blocked; DNS re-resolution and redirect re-classification; allowlist + size/timeout guards.
 - **Policy + approvals** — `READ_ONLY` auto; `SAFE_WRITE` audited; `PUBLIC_WRITE`/`PRIVILEGED` require human approval (single-use, expiry-bound, HMAC over canonical action hash); `DESTRUCTIVE` is denied.
-- **Identity & key handling** — The agent's Ed25519 key is generated locally, stored at `./secrets/did.ed25519` (0600, gitignored, outside the repo tree's tracked files) and bind-mounted read-only into containers; only the DID and signatures ever leave the machine. The repository contains no keys, DIDs, or tokens — `secret-scan.sh` enforces it.
+- **Identity & key handling** — The agent's Ed25519 key is generated locally under `./secrets/did.ed25519` with mode `0600` and is gitignored. After a verified wizard registration, setup changes the bind-mounted file to `0640 root:10001`; the `lumi-worker` and `lumi-scheduler` services read through primary GID 10001. Host access is limited only when membership of GID 10001 is restricted to the service account. Only the DID and signatures ever leave the machine. The repository contains no keys, DIDs, or tokens — `secret-scan.sh` enforces it.
 - **Redaction** — Tokens, `Authorization` headers, JWTs, and env secrets are masked before reaching the model or memory.
 - **Container hardening** — Non-root user, read-only rootfs, `no-new-privileges`, `cap_drop: ALL`; all host-exposed ports are loopback-only (`127.0.0.1`): gateway 3525, PostgreSQL 5433, logs 3590.
 - **Telegram** — Numeric allowlist only; group mode off by default; webhook secret verified; `update_id` deduplication.
@@ -534,12 +534,12 @@ CI runs on every push/PR to `master`: `pytest` (pgvector + Redis + coverage >= 7
 
 This project follows [Semantic Versioning](https://semver.org/) and [Keep a Changelog](https://keepachangelog.com/). The canonical version is defined in `packages/observability/__init__.py` (`__version__`) and tagged as `vMAJOR.MINOR.PATCH`.
 
-Current release: **v1.2.0** — see [CHANGELOG.md](./CHANGELOG.md).
+Current release: **v1.2.2** — see [CHANGELOG.md](./CHANGELOG.md).
 
 To cut a new release:
 
 ```bash
-gh release create v1.2.0 --generate-notes
+gh release create v1.2.2 --generate-notes
 ```
 
 ---

@@ -48,7 +48,7 @@ the exception is written down here.
 
 ## Identity & key material
 
-- The agent's Ed25519 key is generated locally (`apps/tools/flop_register.py`), stored at `TECHNOCORE_KEY_HOST_PATH` (default `./secrets/did.ed25519`) as **0640 `root:10001`** — plain 0600 would lock the container user out of the bind mount. It is gitignored; the repository contains no keys, DIDs or tokens.
+- The agent's Ed25519 key is created locally by `apps/tools/flop_register.py` at `TECHNOCORE_KEY_HOST_PATH` (default `./secrets/did.ed25519`) with mode **0600**. After a verified wizard registration, setup changes the bind-mounted file to **0640 `root:10001`**. The `lumi-worker` and `lumi-scheduler` services run as UID/GID `10001` and read it through the group bit; restrict host membership of GID `10001` to the service account. It is gitignored; the repository contains no keys, DIDs or tokens.
 - The key file is bind-mounted **read-only** into the containers that sign frames; only the public DID and per-message signatures leave the machine.
 - Registration publishes only public data (DID note, faucet claim) and reports a structured `OUTCOME=`; the wizard treats the run as successful only when the note is verified by reading it back.
 - Market signing uses monotonic nonces per room; a replayed frame is rejected by the venue and never re-sent.

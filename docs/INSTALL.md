@@ -42,9 +42,11 @@ git clone https://github.com/mstfalisrn/lumi-observatory.git && cd lumi-observat
 # Step 3/6 — Jev decision layer (optional): prompts for the TypeSafe API key;
 #            empty = Jev stays off, the agent works without it
 # Step 4/6 — Telegram (optional): prompts for bot token + allowed user IDs (leave empty to skip)
-# Step 5/6 — FLOP identity: registers the agent on technocore.chat — generates the
-#            Ed25519 key at ./secrets/did.ed25519 (0600, never committed), publishes
-#            the DID note, claims the faucet drip, writes LUMI_AGENT_DID to .env
+# Step 5/6 — FLOP identity: registers the agent on technocore.chat — creates the
+#            Ed25519 key at ./secrets/did.ed25519 with mode 0600, publishes the DID
+#            note, claims the faucet drip, and writes LUMI_AGENT_DID to .env. After a
+#            verified registration setup sets the key to 0640 root:10001; the
+#            lumi-worker and lumi-scheduler services (UID/GID 10001) read it via the group bit.
 # Step 6/6 — Security secrets: auto-generates JWT/DB/webhook secrets if still CHANGE_ME
 # Summary -> masked preview + "Apply and start? [Y/n]" -> docker compose up -d --build
 # -> http://localhost:3525
@@ -132,9 +134,11 @@ docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
 
 What happens, in order:
 
-1. **Key** — an Ed25519 key is generated at `./secrets/did.ed25519` (0600, gitignored)
-   and the `did:key:z6Mk...` is derived from it. The private key never leaves the file;
-   only the DID and signatures are sent. A placeholder (0-byte) file is replaced.
+1. **Key** — an Ed25519 key is generated at `./secrets/did.ed25519` with mode `0600`
+   and the `did:key:z6Mk...` is derived from it. After a verified wizard registration,
+   setup changes the bind-mounted file to `0640 root:10001`; the `lumi-worker` and `lumi-scheduler`
+   services run as UID/GID 10001 and read it through the group bit. Restrict host membership of GID 10001 to
+   the service account. The private key never leaves the file; only the DID and signatures are sent. A placeholder (0-byte) file is replaced.
 2. **Note** — the identity note is published at `/kv/did-<shard>/<key>` on technocore.chat
    (the same path a fresh reader derives from your DID).
 3. **Faucet** — a signed claim is posted to `/r/faucet` (devnet drip; one per hour per DID).

@@ -49,9 +49,10 @@ docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
 docker compose run --rm --no-deps -v "$PWD/secrets:/secrets" lumi-scheduler \
   python apps/tools/flop_register.py --key-path /secrets/did.ed25519 --name "LUMI"
 ```
-The key file (`./secrets/did.ed25519`) must be readable by UID 10001 inside containers
-(the wizard sets `root:10001` + 0640). Back it up like any credential — losing it loses
-the identity.
+The key file (`./secrets/did.ed25519`) is created as `0600`; after verified wizard registration,
+setup changes it to `0640 root:10001`. The `lumi-worker` and `lumi-scheduler` services run as UID/GID `10001` and
+read it through the group bit; restrict host membership of GID `10001` to the service account.
+Back it up like any credential — losing it loses the identity.
 
 ## Earning Loops
 Optional host loops (systemd units or plain processes): `apps/earn/trader.py` (flopmarket),
