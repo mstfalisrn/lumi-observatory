@@ -2,6 +2,7 @@
 import uuid
 
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -9,21 +10,25 @@ from observability import models
 from observability.auth import create_session_token, hash_password, verify_password
 
 
-async def _sqlite_factory():
+@pytest_asyncio.fixture
+async def sqlite_factory():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
-    return async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_change_password_endpoint_flow(monkeypatch):
+async def test_change_password_endpoint_flow(monkeypatch, sqlite_factory):
     import apps.api.app as api_mod
     from apps.api.app import app
 
     import observability.db as db_mod
 
-    factory = await _sqlite_factory()
+    factory = sqlite_factory
     monkeypatch.setattr(db_mod, "async_session_factory", factory)
     monkeypatch.setattr(api_mod, "async_session_factory", factory)
 
@@ -83,11 +88,11 @@ async def test_change_password_endpoint_flow(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_admin_env_sync_applies_only_when_env_changes(monkeypatch):
+async def test_admin_env_sync_applies_only_when_env_changes(monkeypatch, sqlite_factory):
     import apps.api.app as api_mod
     from apps.api.app import _sync_admin_password
 
-    factory = await _sqlite_factory()
+    factory = sqlite_factory
     monkeypatch.setattr(api_mod, "async_session_factory", factory)
     monkeypatch.setattr(api_mod.settings, "ADMIN_EMAIL", "admin@example.com")
 

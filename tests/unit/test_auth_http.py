@@ -1,13 +1,27 @@
 # LUMI — PHASE 12 auth HTTP dependency + rate limiter redis tests
 import pytest
+import pytest_asyncio
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from observability import models
 from observability.auth import (
     RateLimiter,
     create_session_token,
     get_current_user,
 )
+
+
+@pytest_asyncio.fixture
+async def sqlite_factory():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(models.Base.metadata.create_all)
+    try:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        await engine.dispose()
 
 
 # ---------------------------------------------------------------------------
@@ -38,19 +52,13 @@ async def test_get_current_user_expired_token():
 
 
 @pytest.mark.asyncio
-async def test_get_current_user_valid_token(monkeypatch):
+async def test_get_current_user_valid_token(monkeypatch, sqlite_factory):
     # A signed JWT alone is not a session any more: the account must exist and
     # be active, and the token version must match (G06). "u1" style subjects
     # without a backing row are rejected — build a real user.
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
     import observability.db as db_mod
-    from observability import models
 
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(models.Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+    factory = sqlite_factory
     monkeypatch.setattr(db_mod, "async_session_factory", factory)
 
     async with factory() as s:
@@ -68,17 +76,11 @@ async def test_get_current_user_valid_token(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_current_user_unknown_subject_rejected(monkeypatch):
+async def test_get_current_user_unknown_subject_rejected(monkeypatch, sqlite_factory):
     # valid signature, but no such account: rejected rather than trusted
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
     import observability.db as db_mod
-    from observability import models
 
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(models.Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+    factory = sqlite_factory
     monkeypatch.setattr(db_mod, "async_session_factory", factory)
 
     token = create_session_token("00000000-0000-0000-0000-000000000000", "admin")

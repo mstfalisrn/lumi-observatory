@@ -1,16 +1,21 @@
 # LUMI — audit follow-up: session revocation (G06) + streaming body cap (G07)
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from observability import models
 
 
-async def _factory():
+@pytest_asyncio.fixture
+async def sqlite_factory():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
-    return async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        await engine.dispose()
 
 
 def _patch(monkeypatch, factory):
@@ -52,12 +57,12 @@ def _bearer(token):
 # G06 — live account state is enforced on every request
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_revoked_token_rejected(monkeypatch):
+async def test_revoked_token_rejected(monkeypatch, sqlite_factory):
     from apps.api.app import app
 
     from observability.auth import create_session_token
 
-    factory = await _factory()
+    factory = sqlite_factory
     _patch(monkeypatch, factory)
     uid = await _user(factory)
     token = create_session_token(uid, "admin", 3600, 0)
@@ -72,12 +77,12 @@ async def test_revoked_token_rejected(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_inactive_account_rejected(monkeypatch):
+async def test_inactive_account_rejected(monkeypatch, sqlite_factory):
     from apps.api.app import app
 
     from observability.auth import create_session_token
 
-    factory = await _factory()
+    factory = sqlite_factory
     _patch(monkeypatch, factory)
     uid = await _user(factory, active=False)
     token = create_session_token(uid, "admin", 3600, 0)
@@ -87,7 +92,7 @@ async def test_inactive_account_rejected(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_role_change_applies_immediately(monkeypatch):
+async def test_role_change_applies_immediately(monkeypatch, sqlite_factory):
     """The role comes from the DB row, not the token claim."""
     import uuid as _uuid
 
@@ -95,7 +100,7 @@ async def test_role_change_applies_immediately(monkeypatch):
 
     from observability.auth import create_session_token
 
-    factory = await _factory()
+    factory = sqlite_factory
     _patch(monkeypatch, factory)
     uid = await _user(factory, role="admin")
     token = create_session_token(uid, "admin", 3600, 0)
@@ -110,12 +115,12 @@ async def test_role_change_applies_immediately(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_logout_revokes_the_token(monkeypatch):
+async def test_logout_revokes_the_token(monkeypatch, sqlite_factory):
     from apps.api.app import app
 
     from observability.auth import create_session_token
 
-    factory = await _factory()
+    factory = sqlite_factory
     _patch(monkeypatch, factory)
     uid = await _user(factory)
     token = create_session_token(uid, "admin", 3600, 0)
@@ -127,12 +132,12 @@ async def test_logout_revokes_the_token(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_change_password_rotates_the_token(monkeypatch):
+async def test_change_password_rotates_the_token(monkeypatch, sqlite_factory):
     from apps.api.app import app
 
     from observability.auth import create_session_token, hash_password
 
-    factory = await _factory()
+    factory = sqlite_factory
     _patch(monkeypatch, factory)
     uid = await _user(factory, pw=hash_password("oldpw12345"))
     token = create_session_token(uid, "admin", 3600, 0)

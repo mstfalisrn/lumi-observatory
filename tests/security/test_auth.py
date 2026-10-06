@@ -49,7 +49,7 @@ class TestSessionToken:
     def test_wrong_secret_rejected(self):
         tok = create_session_token("u-1", "admin", 3600)
         with pytest.raises(pyjwt.InvalidSignatureError):
-            pyjwt.decode(tok, "wrong-secret-key-for-test", algorithms=["HS256"])
+            pyjwt.decode(tok, "not-a-real-test-signing-key-of-32-bytes", algorithms=["HS256"])
 
 
 class TestRBAC:

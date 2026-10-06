@@ -230,7 +230,7 @@ class TestApprovalContinuation:
         assert consumed3 is False
 
     @pytest.mark.asyncio
-    async def test_expiry_persists_via_http_410(self, engine):
+    async def test_expiry_persists_via_http_410(self, engine, monkeypatch):
         import apps.api.app as api_mod
         from apps.api.app import app
         from httpx import ASGITransport, AsyncClient
@@ -239,8 +239,8 @@ class TestApprovalContinuation:
         from observability.auth import create_session_token
 
         S = async_sessionmaker(engine, expire_on_commit=False)
-        db_mod.async_session_factory = S  # type: ignore
-        api_mod.async_session_factory = S  # type: ignore
+        monkeypatch.setattr(db_mod, "async_session_factory", S)
+        monkeypatch.setattr(api_mod, "async_session_factory", S)
         async with S() as s:
             u = models.User(username="expuser@example.com", display_name="e", role="admin", is_active=True, password_hash="x")
             s.add(u)
@@ -270,15 +270,15 @@ class TestApprovalContinuation:
             assert a2.status == models.ApprovalStatus.EXPIRED.value
 
     @pytest.mark.asyncio
-    async def test_worker_second_invocation_does_not_double_call(self, engine):
+    async def test_worker_second_invocation_does_not_double_call(self, engine, monkeypatch):
         # fail-closed: PENDING second worker should not call registry again
         import apps.worker.worker as w_mod
 
         import observability.db as db_mod
 
         S = async_sessionmaker(engine, expire_on_commit=False)
-        db_mod.async_session_factory = S  # type: ignore
-        w_mod.async_session_factory = S  # type: ignore
+        monkeypatch.setattr(db_mod, "async_session_factory", S)
+        monkeypatch.setattr(w_mod, "async_session_factory", S)
         async with S() as s:
             u = models.User(username="u2", display_name="t", role="admin", is_active=True, password_hash="x")
             s.add(u)
@@ -411,13 +411,13 @@ class TestApprovalContinuation:
 # ---------------------------------------------------------------------------
 class TestRunEventSeq:
     @pytest.mark.asyncio
-    async def test_seq_0_1_2_with_safe_append(self, engine):
+    async def test_seq_0_1_2_with_safe_append(self, engine, monkeypatch):
         import apps.worker.worker as w_mod
 
         import observability.db as db_mod
         S = async_sessionmaker(engine, expire_on_commit=False)
-        db_mod.async_session_factory = S  # type: ignore
-        w_mod.async_session_factory = S  # type: ignore
+        monkeypatch.setattr(db_mod, "async_session_factory", S)
+        monkeypatch.setattr(w_mod, "async_session_factory", S)
         async with S() as s:
             t = models.Task(title="t", prompt="p", scope={}, budget={})
             s.add(t)
@@ -435,11 +435,9 @@ class TestRunEventSeq:
             evs = res.scalars().all()
             assert [e.seq for e in evs] == [0, 1, 2]
             assert [e.event_type for e in evs] == ["EV0", "EV1", "EV2"]
-        # cleanup patch
-        # restore? will be overwritten per test, not critical
 
     @pytest.mark.asyncio
-    async def test_seq_zero_bug_fixed(self, engine):
+    async def test_seq_zero_bug_fixed(self, engine, monkeypatch):
         # when MAX=0, int(MAX or -1) -> -1 -> would produce 0 again; after fix it should produce 1
         S = async_sessionmaker(engine, expire_on_commit=False)
         async with S() as s:
@@ -457,8 +455,8 @@ class TestRunEventSeq:
             import apps.worker.worker as w_mod
 
             import observability.db as db_mod
-            db_mod.async_session_factory = S  # type: ignore
-            w_mod.async_session_factory = S  # type: ignore
+            monkeypatch.setattr(db_mod, "async_session_factory", S)
+            monkeypatch.setattr(w_mod, "async_session_factory", S)
             await w_mod._append_run_event_safe(rid, "SECOND", {})
             # check
             await s.execute(select(models.RunEvent).where(models.RunEvent.run_id == rid).order_by(models.RunEvent.seq))
@@ -470,13 +468,13 @@ class TestRunEventSeq:
                 assert [e.seq for e in evs2] == [0, 1]
 
     @pytest.mark.asyncio
-    async def test_sqlite_sequential_fallback_seq_unique(self, engine):
+    async def test_sqlite_sequential_fallback_seq_unique(self, engine, monkeypatch):
         S = async_sessionmaker(engine, expire_on_commit=False)
         import apps.worker.worker as w_mod
 
         import observability.db as db_mod
-        db_mod.async_session_factory = S  # type: ignore
-        w_mod.async_session_factory = S  # type: ignore
+        monkeypatch.setattr(db_mod, "async_session_factory", S)
+        monkeypatch.setattr(w_mod, "async_session_factory", S)
         async with S() as s:
             t = models.Task(title="t", prompt="p", scope={}, budget={})
             s.add(t)
@@ -500,13 +498,13 @@ class TestRunEventSeq:
             assert seqs == sorted(seqs) == [0, 1, 2]
 
     @pytest.mark.asyncio
-    async def test_resume_continues_seq_after_restart(self, engine):
+    async def test_resume_continues_seq_after_restart(self, engine, monkeypatch):
         S = async_sessionmaker(engine, expire_on_commit=False)
         import apps.worker.worker as w_mod
 
         import observability.db as db_mod
-        db_mod.async_session_factory = S  # type: ignore
-        w_mod.async_session_factory = S  # type: ignore
+        monkeypatch.setattr(db_mod, "async_session_factory", S)
+        monkeypatch.setattr(w_mod, "async_session_factory", S)
         async with S() as s:
             t = models.Task(title="t", prompt="p", scope={}, budget={})
             s.add(t)
@@ -581,7 +579,7 @@ class TestRetryIdempotency:
             assert str(r2.id) != str(r1_id)
 
     @pytest.mark.asyncio
-    async def test_retry_via_api_idempotency_key_header(self, engine):
+    async def test_retry_via_api_idempotency_key_header(self, engine, monkeypatch):
         import apps.api.app as api_mod
         from apps.api.app import app
         from httpx import ASGITransport, AsyncClient
@@ -590,8 +588,8 @@ class TestRetryIdempotency:
         from observability.auth import create_session_token
 
         S = async_sessionmaker(engine, expire_on_commit=False)
-        db_mod.async_session_factory = S  # type: ignore
-        api_mod.async_session_factory = S  # type: ignore
+        monkeypatch.setattr(db_mod, "async_session_factory", S)
+        monkeypatch.setattr(api_mod, "async_session_factory", S)
         async with S() as s:
             u = models.User(username="apiuser@example.com", display_name="api", role="admin", is_active=True, password_hash="x")
             s.add(u)
@@ -624,7 +622,6 @@ class TestRetryIdempotency:
             j3 = r3.json()
             assert j3["run_id"] != j1["run_id"]
             assert j3.get("dedup") is not True
-        db_mod.async_session_factory = async_sessionmaker(create_async_engine("sqlite+aiosqlite:///:memory:"), expire_on_commit=False)
 
 
 # ---------------------------------------------------------------------------
@@ -632,14 +629,14 @@ class TestRetryIdempotency:
 # ---------------------------------------------------------------------------
 class TestSSEAuth:
     @pytest.mark.asyncio
-    async def test_sse_requires_auth(self, engine):
+    async def test_sse_requires_auth(self, engine, monkeypatch):
         from apps.api.app import app
         from httpx import ASGITransport, AsyncClient
 
         import observability.db as db_mod
 
         S = async_sessionmaker(engine, expire_on_commit=False)
-        db_mod.async_session_factory = S  # type: ignore
+        monkeypatch.setattr(db_mod, "async_session_factory", S)
         transport = ASGITransport(app=app)  # type: ignore
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             r = await client.get("/api/v1/events/stream")
@@ -667,15 +664,15 @@ class TestSSEAuth:
         assert _parse_sse_cursor(req4) == 0
 
     @pytest.mark.asyncio
-    async def test_sse_fetch_helper_finite(self, engine):
+    async def test_sse_fetch_helper_finite(self, engine, monkeypatch):
         import apps.api.app as api_mod
         from apps.api.app import _fetch_sse_events
 
         import observability.db as db_mod
 
         S = async_sessionmaker(engine, expire_on_commit=False)
-        db_mod.async_session_factory = S  # type: ignore
-        api_mod.async_session_factory = S  # type: ignore
+        monkeypatch.setattr(db_mod, "async_session_factory", S)
+        monkeypatch.setattr(api_mod, "async_session_factory", S)
         async with S() as s:
             t = models.Task(title="t", prompt="p", scope={}, budget={})
             s.add(t)
@@ -697,14 +694,14 @@ class TestSSEAuth:
         assert rows3 == []
 
     @pytest.mark.asyncio
-    async def test_sse_replay_fetch_after_cursor(self, engine):
+    async def test_sse_replay_fetch_after_cursor(self, engine, monkeypatch):
         import apps.api.app as api_mod
 
         import observability.db as db_mod
 
         S = async_sessionmaker(engine, expire_on_commit=False)
-        db_mod.async_session_factory = S  # type: ignore
-        api_mod.async_session_factory = S  # type: ignore
+        monkeypatch.setattr(db_mod, "async_session_factory", S)
+        monkeypatch.setattr(api_mod, "async_session_factory", S)
         async with S() as s:
             t = models.Task(title="t", prompt="p", scope={}, budget={})
             s.add(t)
@@ -731,7 +728,7 @@ class TestSSEAuth:
         assert rows_empty == []
 
     @pytest.mark.asyncio
-    async def test_sse_query_token_rejected(self, engine):
+    async def test_sse_query_token_rejected(self, engine, monkeypatch):
         # Bearer-only SSE: query ?token and cookie must be rejected; Bearer required.
         import apps.api.app as api_mod
         from httpx import ASGITransport, AsyncClient
@@ -739,8 +736,8 @@ class TestSSEAuth:
         import observability.db as db_mod
         from observability.auth import create_session_token
         S = async_sessionmaker(engine, expire_on_commit=False)
-        db_mod.async_session_factory = S  # type: ignore
-        api_mod.async_session_factory = S  # type: ignore
+        monkeypatch.setattr(db_mod, "async_session_factory", S)
+        monkeypatch.setattr(api_mod, "async_session_factory", S)
         async with S() as s:
             u = models.User(username="ssecookie@example.com", display_name="s", role="viewer", is_active=True, password_hash="x")
             s.add(u)
@@ -751,17 +748,23 @@ class TestSSEAuth:
         async with AsyncClient(transport=transport, base_url="http://test", timeout=5) as client:
             r = await client.get(f"/api/v1/events/stream?token={token}")
             assert r.status_code == 401, "query ?token must not be accepted"
-            # cookie alone must also be 401 (Bearer-only)
-            r_cookie = await client.get("/api/v1/events/stream", cookies={"lumi_session": token})
-            assert r_cookie.status_code == 401, "cookie must not be accepted"
             # without any token must be 401
             r2 = await client.get("/api/v1/events/stream")
             assert r2.status_code == 401
-            # valid Bearer: verify token decodes and _fetch helper would be used (stream is infinite, so we test via helper instead of hanging on streaming body)
-            from observability.auth import decode_session_token
+        # cookie alone must also be 401 (Bearer-only)
+        async with AsyncClient(
+            transport=ASGITransport(app=api_mod.app),
+            base_url="http://test",
+            timeout=5,
+            cookies={"lumi_session": token},
+        ) as cookie_client:
+            r_cookie = await cookie_client.get("/api/v1/events/stream")
+            assert r_cookie.status_code == 401, "cookie must not be accepted"
+        # valid Bearer: verify token decodes and _fetch helper would be used (stream is infinite, so we test via helper instead of hanging on streaming body)
+        from observability.auth import decode_session_token
 
-            payload = decode_session_token(token)
-            assert payload["sub"] == str(uid)
+        payload = decode_session_token(token)
+        assert payload["sub"] == str(uid)
 
 
 

@@ -1,5 +1,6 @@
 # LUMI — audit regression tests (G01 traversal, G02 login limiter, G03 verified-lock reveal)
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -31,21 +32,25 @@ async def test_assets_route_blocks_path_traversal():
 # ---------------------------------------------------------------------------
 # G02 — the login route carries its own limiter (it is exempt from middleware)
 # ---------------------------------------------------------------------------
-async def _sqlite_factory():
+@pytest_asyncio.fixture
+async def sqlite_factory():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
-    return async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_login_is_rate_limited_per_ip_and_account(monkeypatch):
+async def test_login_is_rate_limited_per_ip_and_account(monkeypatch, sqlite_factory):
     import apps.api.app as api_mod
     from apps.api.app import app
 
     import observability.db as db_mod
 
-    factory = await _sqlite_factory()
+    factory = sqlite_factory
     monkeypatch.setattr(db_mod, "async_session_factory", factory)
     monkeypatch.setattr(api_mod, "async_session_factory", factory)
 

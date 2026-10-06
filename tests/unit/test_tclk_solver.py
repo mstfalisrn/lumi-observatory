@@ -1,10 +1,16 @@
 """tclk solver tests — briefs copied verbatim from the live tclk market."""
 
+import os
 import sys
+import time
+from datetime import UTC, datetime
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps" / "scheduler"))
 
+from br_fold import _utc_milliseconds, parse_material
 from tclk_solver import (
     solve,
     solve_documentation,
@@ -210,3 +216,33 @@ def test_protocol_reports_the_first_rejected_frame():
     )
     answer = solve_protocol(bad)
     assert answer is not None and answer.startswith("cancelled rejected heartbeat frame:")
+
+
+def test_protocol_material_timestamp_is_utc_and_keeps_milliseconds(monkeypatch):
+    """A source timestamp ending in Z must not depend on the host timezone."""
+    material = (
+        "tclk-offers | 2026-09-28T08:45:25.631Z | "
+        "did:key:z6MkBt9j1xVUdnSedQo8mUZ1yxhFibJSeeGoGgcK4NRBZCg8 | tclk1 {}"
+    )
+    if not hasattr(time, "tzset"):
+        pytest.skip("timezone switching is unavailable on this platform")
+    previous_tz = os.environ.get("TZ")
+    try:
+        monkeypatch.setenv("TZ", "America/New_York")
+        time.tzset()
+        rows = parse_material(material)
+        expected = int(datetime(2026, 9, 28, 8, 45, 25, 631000, tzinfo=UTC).timestamp() * 1000)
+        assert rows is not None
+        assert rows[0]["time_ms"] == expected
+    finally:
+        if previous_tz is None:
+            monkeypatch.delenv("TZ", raising=False)
+        else:
+            monkeypatch.setenv("TZ", previous_tz)
+        time.tzset()
+
+
+def test_protocol_material_parser_rejects_non_z_timestamps():
+    """Fail-closed: a timestamp without the Z suffix is rejected, not reinterpreted."""
+    with pytest.raises(ValueError):
+        _utc_milliseconds("2026-09-28T08:45:25+02:00")
