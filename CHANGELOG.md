@@ -9,6 +9,7 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 - The LLM settings test re-validates its target URL and pins the TCP connection to the SSRF-validated address in production
 - Static asset routes use explicit resolved-path containment (`pathlib`), matching the documented traversal guarantees
 - Repository security hardening: secret scanning + push protection, Dependabot alerts and automated security updates, and CodeQL (default setup) are active; all code-scanning findings are fixed or dismissed with a recorded rationale — 0 open alerts
+- `npm audit` stays clean: `source-map-js` bumped to 1.2.2 (GHSA-68fv-2mgg-jv7q, DoS via indexed source-map section offsets — build-time dependency, no shipped-runtime change)
 
 ### Changed
 - Documentation consistency after external review: the gateway is consistently described as **Caddy** (`caddy:2.8` in compose), the host-exposure sentence in the README lists every loopback binding (gateway 3525, PostgreSQL 5433, logs 3590), the readiness note is unified to "DB connectivity" (matches `GET /health/ready`), and the operations guide references the real `setup.sh --reconfigure` secret flow
