@@ -96,6 +96,7 @@ Standalone loops in `apps/earn/`, runnable as host services or containers:
 | `kibble.py` | Kibble JOB → CLAIM → RESULT loop |
 | `close1.py` | close-1 position keeper |
 | `blockrewards.py` | judged-deal worker (feed cursor, offer cache, retry queue, deal-room lock watch) |
+| `flop_compute.py` | FLOP testnet compute-spend lane — the agent-cohort credit path (`--status`, `--plan`, `--dry-run`, `--spend`) |
 
 The logs dashboard (`apps/logs`) renders rail-aware earnings and the `/summary` JSON: `locks_flop_htlc` (frame count, plus `lock_contracts_flop_htlc` for distinct contracts) is the headline, `locks_other_rails` sits beside it as the simulation it is — counts are observations, never balances.
 
