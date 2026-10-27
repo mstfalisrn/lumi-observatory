@@ -13,6 +13,9 @@ MOD_PATH = Path(__file__).resolve().parents[2] / "apps" / "tools" / "flop_enroll
 
 pytest.importorskip("cryptography")
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
 
 def _load():
     spec = importlib.util.spec_from_file_location("flop_enroll", MOD_PATH)
@@ -67,13 +70,10 @@ def test_constants_point_at_our_identity() -> None:
 def test_real_seed_derivation_when_present() -> None:
     """Runs only where the DID secret exists; CI has no secrets and skips."""
     seed_path = Path(enroll.SEED)
-    if not seed_path.exists():
-        pytest.skip("DID seed not available in this environment")
-
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-
-    seed = seed_path.read_bytes()
+    try:
+        seed = seed_path.read_bytes()
+    except OSError:
+        pytest.skip("DID seed not readable in this environment (CI runs unprivileged)")
     assert len(seed) == 32
     pub = Ed25519PrivateKey.from_private_bytes(seed).public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     assert "z" + enroll.b58(b"\xed\x01" + pub) == enroll.EXPECTED_DID
