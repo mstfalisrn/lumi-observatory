@@ -53,10 +53,12 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-SPENDABLE_CALLS = ("agent_transfer", "open_channel", "top_up_escrow", "force_open")
+SPENDABLE_CALLS = ("agent_transfer", "open_channel", "top_up_escrow", "force_open", "compute_completion")
 # Only the legs that land in a payable accrue credit; agent_transfer is explicitly
 # outside the payable (§8.2), so the projection below counts compute legs only.
-COMPUTE_CREDIT_CALLS = ("open_channel", "top_up_escrow", "force_open")
+# compute_completion is the inference purchase: the gateway opens and bills the channel
+# server-side, so it lands in a payable exactly like open_channel/top_up_escrow.
+COMPUTE_CREDIT_CALLS = ("open_channel", "top_up_escrow", "force_open", "compute_completion")
 CREDIT_DIVISOR = 3
 DEFAULT_CAP_RATIO = 0.75
 DISPUTE_WINDOW_DAYS = 7
@@ -148,8 +150,28 @@ def plan(principal: int, spent_flop: int = 0, ratio: float = DEFAULT_CAP_RATIO) 
     }
 
 
+def _gateway():
+    """Import the gateway client lazily so the ledger works without it installed."""
+    try:
+        from apps.earn import flop_gateway
+    except ImportError:  # pragma: no cover - path layout differs when run as a script
+        try:
+            import flop_gateway  # type: ignore[no-redef]
+        except ImportError:
+            return None
+    return flop_gateway
+
+
 def client_available() -> bool:
-    """The public testnet client is not published: both controls are unset today."""
+    """True when a released client can actually be reached.
+
+    Two lanes exist. The inference gateway (``api.flop.network``) is public and keyed,
+    so compute purchases can settle today on devnet. The four chain calls still need a
+    node client, which ``flop-labs`` has not released.
+    """
+    gateway = _gateway()
+    if gateway is not None and gateway.available():
+        return True
     rpc = os.environ.get("FLOP_TESTNET_RPC", "").strip()
     cli = os.environ.get("FLOP_CLI", "").strip()
     if rpc and rpc.startswith(("http://", "https://")):
@@ -158,19 +180,48 @@ def client_available() -> bool:
 
 
 def client_call(call: str, amount_flop: int) -> dict:
-    """The single place to wire the released testnet client. Refuses until it ships.
+    """The single place a spend becomes real.
 
-    The client contract (binary name, arguments, response shape) is unknown while the
-    network is unpublished, so no call is invented here: the function reports the refusal
-    and the ledger records it. Replace the body — not the call sites — when the client
-    arrives.
+    ``compute_completion`` buys inference through the gateway: the same call the agent
+    makes in production, and the only leg with a published client. The four chain calls
+    stay refused until a node client ships — no call is invented for them.
     """
+    if call == "compute_completion":
+        gateway = _gateway()
+        if gateway is None or not gateway.available():
+            return {
+                "ok": False,
+                "reason": "client_unavailable",
+                "detail": "no gateway key: run apps/tools/flop_enroll.py",
+                "call": call,
+                "amount_flop": amount_flop,
+            }
+        budget = amount_flop * 1000 / max(1.0, gateway.PRICE_PER_1K_TOKENS) if amount_flop else 0
+        max_tokens = int(min(256, max(1, budget / 2)))
+        res = gateway.complete("Reply with the single word: ready", max_tokens=max_tokens)
+        if not res.get("ok"):
+            return {
+                "ok": False,
+                "reason": res.get("reason", "client_error"),
+                "detail": str(res.get("body", ""))[:300],
+                "call": call,
+                "amount_flop": amount_flop,
+            }
+        return {
+            "ok": True,
+            "tx": res.get("request_id", ""),
+            "call": call,
+            "amount_flop": amount_flop,
+            "cost_flop": res.get("cost_flop", 0.0),
+            "usage": res.get("usage", {}),
+            "text": res.get("text", ""),
+        }
     return {
         "ok": False,
         "reason": "client_unavailable",
         "detail": (
-            "no public FLOP testnet client/node release exists; set FLOP_CLI or "
-            "FLOP_TESTNET_RPC and implement client_call() against the released interface"
+            "the four chain calls need a FLOP node client; no public release exists. "
+            "Set FLOP_CLI or FLOP_TESTNET_RPC and implement client_call() for that interface"
         ),
         "call": call,
         "amount_flop": amount_flop,
@@ -315,9 +366,10 @@ def status(directory: Path | None = None) -> dict:
         "plan": plan(principal, summary["spent_flop"], cap_ratio_from_env()),
         "ledger_summary": summary,
         "next_action": (
-            "write the released testnet client into client_call(), then open a channel and "
-            "fund escrow for compute; credit follows each settled payable after its "
-            "seven-day dispute window"
+            "compute_completion can settle today through the gateway (devnet key via "
+            "apps/tools/flop_enroll.py); the four chain calls wait on a node client. The "
+            "gateway needs a funded channel: a 503 channel_unfunded means the account "
+            "balance is below the channel minimum"
         ),
     }
 

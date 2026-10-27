@@ -20,15 +20,18 @@ sys.path.insert(0, str(MODULE_DIR))
 import flop_compute as fc
 
 
-def test_four_calls_may_spend_and_only_three_credit():
+def test_spendable_legs_and_which_ones_credit():
     assert set(fc.SPENDABLE_CALLS) == {
         "agent_transfer",
         "open_channel",
         "top_up_escrow",
         "force_open",
+        "compute_completion",
     }
     # §8.2: locked principal spent through agent_transfer is outside the payable.
     assert "agent_transfer" not in fc.COMPUTE_CREDIT_CALLS
+    # The inference purchase bills a channel, so it lands in a payable.
+    assert "compute_completion" in fc.COMPUTE_CREDIT_CALLS
 
 
 def test_credit_is_floor_third_of_the_locked_part():
@@ -112,7 +115,7 @@ def test_spend_fails_closed_without_a_published_client():
     row = fc.attempt_spend("open_channel", 40, principal=1200, enabled=True, client_ok=False)
     assert row["kind"] == "blocked"
     assert row["reason"] == "client_unavailable"
-    assert "testnet client" in row["detail"]
+    assert "node client" in row["detail"]
 
 
 def test_client_call_never_invents_an_interface():
@@ -178,6 +181,8 @@ def test_status_reports_plan_and_next_action(tmp_path, monkeypatch):
     monkeypatch.setenv("FLOP_COMPUTE_ENABLED", "false")
     monkeypatch.delenv("FLOP_CLI", raising=False)
     monkeypatch.delenv("FLOP_TESTNET_RPC", raising=False)
+    monkeypatch.delenv("FLOP_GATEWAY_KEY", raising=False)
+    monkeypatch.setenv("FLOP_GATEWAY_KEY_FILE", str(tmp_path / "absent.key"))
     payload = fc.status(tmp_path)
     assert payload["enabled"] is False
     assert payload["client_available"] is False
