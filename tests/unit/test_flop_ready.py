@@ -46,6 +46,9 @@ class FakeGateway:
     def complete(self, *a, **k):
         return self._probe
 
+    def models(self):
+        return {"ok": True, "count": 1, "ids": ["qwen/qwen2.5-0.5b-instruct"]}
+
     def receipts(self):
         return self._receipts
 
@@ -132,3 +135,44 @@ def test_json_output_is_machine_readable(monkeypatch, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["ready"] is True
     assert out["chain"]["ss58"].startswith("5DxHXcR")
+
+
+def test_chain_unreachable_is_reported_not_raised(monkeypatch):
+    def boom(**kwargs):
+        raise RuntimeError("RPC unreachable: HTTP Error 503")
+
+    monkeypatch.setattr(ready.rail, "check", boom)
+    monkeypatch.setattr(ready, "_gateway", lambda: FakeGateway())
+    report = ready.readiness()
+    assert report["blocker"] == "chain_unreachable"
+    assert ready.main([]) == 8
+
+
+def test_empty_catalogue_is_no_supply(monkeypatch):
+    patch_chain(monkeypatch, CHAIN_OK)
+
+    class EmptyCatalogue(FakeGateway):
+        def models(self):
+            return {"ok": True, "count": 0, "ids": []}
+
+    monkeypatch.setattr(ready, "_gateway", lambda: EmptyCatalogue())
+    report = ready.readiness()
+    assert report["blocker"] == "no_supply"
+    assert report["ready"] is False
+    assert ready.main([]) == 7
+
+
+def test_model_not_advertised_mid_probe(monkeypatch):
+    patch_chain(monkeypatch, CHAIN_OK)
+
+    class NoSupply(FakeGateway):
+        def models(self):
+            return {"ok": True, "count": 1, "ids": ["qwen/qwen2.5-0.5b-instruct"]}
+
+        def complete(self, *a, **k):
+            return {"ok": False, "reason": "no_supply"}
+
+    monkeypatch.setattr(ready, "_gateway", lambda: NoSupply())
+    report = ready.readiness()
+    assert report["blocker"] == "no_supply"
+    assert "supply" in report["action"]

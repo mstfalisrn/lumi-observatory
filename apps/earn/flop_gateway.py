@@ -99,6 +99,8 @@ def classify(code: int, body: dict) -> str | None:
     lowered = message.lower()
     if "openchannel" in lowered or "open_channel" in lowered:
         return "channel_unfunded"
+    if "not currently advertised" in lowered or body.get("error", {}).get("code") == "model_not_found":
+        return "no_supply"
     if code in (401, 403):
         return "key_rejected"
     if code == 429:
@@ -156,6 +158,20 @@ def complete(prompt: str, max_tokens: int = 16, model: str | None = None) -> dic
         "cost_flop": cost_flop(int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)),
         "request_id": body.get("id"),
         "model": body.get("model", target),
+    }
+
+
+def models() -> dict:
+    """What FLOP currently advertises. Empty means no provider is serving right now."""
+    code, body = _request("GET", "/v1/models")
+    reason = classify(code, body)
+    if reason:
+        return {"ok": False, "reason": reason, "http": code, "body": body}
+    items = body.get("data") if isinstance(body.get("data"), list) else []
+    return {
+        "ok": True,
+        "count": len(items),
+        "ids": [m.get("id") for m in items if isinstance(m, dict)],
     }
 
 

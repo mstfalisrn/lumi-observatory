@@ -154,3 +154,27 @@ def test_receipts_reads_data_or_receipts(monkeypatch, tmp_path) -> None:
     assert res["count"] == 2
     monkeypatch.setattr(gw, "_request", lambda *a, **k: (200, {"receipts": [{"id": 9}]}))
     assert gw.receipts()["count"] == 1
+
+
+def test_classify_model_not_advertised_is_supply() -> None:
+    body = {
+        "error": {
+            "code": "model_not_found",
+            "message": "Model 'qwen/qwen2.5-0.5b-instruct' is not currently advertised by FLOP.",
+        }
+    }
+    assert gw.classify(404, body) == "no_supply"
+
+
+def test_models_reports_the_catalogue(monkeypatch, tmp_path) -> None:
+    key_file = tmp_path / "gw.key"
+    key_file.write_text("k\n")
+    monkeypatch.setenv("FLOP_GATEWAY_KEY_FILE", str(key_file))
+    monkeypatch.setattr(gw, "_request", lambda *a, **k: (200, {"data": [{"id": "qwen/qwen2.5-0.5b-instruct"}]}))
+    res = gw.models()
+    assert res["ok"] is True
+    assert res["count"] == 1
+    assert res["ids"] == ["qwen/qwen2.5-0.5b-instruct"]
+
+    monkeypatch.setattr(gw, "_request", lambda *a, **k: (200, {"data": []}))
+    assert gw.models()["count"] == 0

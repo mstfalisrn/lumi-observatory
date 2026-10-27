@@ -44,7 +44,12 @@ def readiness(did: str = DEFAULT_DID, rpc_url: str = rail.DEVNET_RPC, probe: boo
     """Walk the five links and stop reporting progress at the first blocker."""
     report: dict = {"did": did, "links": {}, "blocker": None, "action": None, "ready": False}
 
-    chain = rail.check(rpc_url=rpc_url, did=did)
+    try:
+        chain = rail.check(rpc_url=rpc_url, did=did)
+    except Exception as exc:  # rail.CheckError and transport failures alike
+        report["blocker"] = "chain_unreachable"
+        report["action"] = f"the pinned RPC did not answer ({str(exc)[:120]}); retry later"
+        return report
     checks = chain.get("checks", {})
     account = chain.get("ss58") or ""
     balance = chain.get("balance") or "0"
@@ -79,14 +84,29 @@ def readiness(did: str = DEFAULT_DID, rpc_url: str = rail.DEVNET_RPC, probe: boo
     report["links"]["gateway"] = True
 
     if probe:
+        cat = gateway.models()
+        report["models"] = {"ok": cat.get("ok"), "count": cat.get("count", 0), "ids": cat.get("ids", [])}
+        if cat.get("ok") and not cat.get("count"):
+            report["blocker"] = "no_supply"
+            report["action"] = (
+                "the catalogue is empty: no provider is serving inference right now. Not a "
+                "funding problem — re-run later, the readiness watch will pick it up"
+            )
+            return report
         res = gateway.complete("Reply with the single word: ready", max_tokens=4)
         report["probe"] = {k: res.get(k) for k in ("ok", "reason", "text", "cost_flop", "request_id")}
         if not res.get("ok"):
             report["blocker"] = res.get("reason", "probe_failed")
-            report["action"] = (
-                "channel_unfunded: the balance is below the channel minimum — drip again "
-                "(adres başına 24 saat) or use the verified-human tier; then re-run this tool"
-            )
+            if res.get("reason") == "no_supply":
+                report["action"] = (
+                    "the model is listed but no provider is serving it right now — retry later; "
+                    "this is supply, not our account"
+                )
+            else:
+                report["action"] = (
+                    "channel_unfunded: the balance is below the channel minimum — drip again "
+                    "(adres başına 24 saat) or use the verified-human tier; then re-run this tool"
+                )
             return report
         report["links"]["channel"] = True
 
@@ -132,6 +152,8 @@ def main(argv: list[str] | None = None) -> int:
         "unfunded": 3,
         "no_gateway_key": 4,
         "channel_unfunded": 5,
+        "no_supply": 7,
+        "chain_unreachable": 8,
     }.get(report["blocker"] or "", 6)
 
 
