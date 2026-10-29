@@ -178,3 +178,17 @@ def test_models_reports_the_catalogue(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(gw, "_request", lambda *a, **k: (200, {"data": []}))
     assert gw.models()["count"] == 0
+
+
+def test_classify_survives_a_string_error_body() -> None:
+    # The gateway sometimes answers {"error": "invalid_address"} — no .get on a str.
+    assert gw.classify(400, {"error": "invalid_address"}) == "request_rejected"
+    assert gw.classify(401, {"error": "api_key_required"}) == "key_rejected"
+
+
+def test_classify_enrollment_maintenance() -> None:
+    body = {
+        "error": "wallet_enrollment_unavailable",
+        "message": "Wallet enrollment is temporarily unavailable.",
+    }
+    assert gw.classify(503, body) == "enrollment_unavailable"

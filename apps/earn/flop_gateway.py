@@ -91,6 +91,7 @@ def classify(code: int, body: dict) -> str | None:
     if code == 200:
         return None
     err = body.get("error")
+    err_code = err.get("code") if isinstance(err, dict) else None
     message = ""
     if isinstance(err, dict):
         message = str(err.get("message", ""))
@@ -99,10 +100,12 @@ def classify(code: int, body: dict) -> str | None:
     lowered = message.lower()
     if "openchannel" in lowered or "open_channel" in lowered:
         return "channel_unfunded"
-    if "not currently advertised" in lowered or body.get("error", {}).get("code") == "model_not_found":
+    if "not currently advertised" in lowered or err_code == "model_not_found":
         return "no_supply"
     if code in (401, 403):
         return "key_rejected"
+    if "enrollment is temporarily unavailable" in lowered:
+        return "enrollment_unavailable"
     if code == 429:
         return "rate_limited"
     if code >= 500:
