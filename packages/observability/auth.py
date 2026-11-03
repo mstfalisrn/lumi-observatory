@@ -161,11 +161,13 @@ class RateLimiter:
         now = time.time()
         if r is not None:
             try:
-                pipe = r.pipeline()
-                pipe.incr(key)
-                pipe.expire(key, window_seconds)
-                count, _ = await pipe.execute()
-                return int(count) <= limit
+                # Fixed window: the TTL is set once, when the counter is created.
+                # Refreshing it on every hit turns a fixed window into a bucket that
+                # never drains under steady traffic — one busy client then stays 429'd.
+                count = int(await r.incr(key))
+                if count == 1:
+                    await r.expire(key, window_seconds)
+                return count <= limit
             except Exception:
                 pass  # in-memory fallback when Redis is unavailable
         # in-memory fallback (sufficient for single process)

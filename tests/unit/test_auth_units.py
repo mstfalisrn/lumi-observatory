@@ -35,6 +35,7 @@ def test_session_token_roundtrip():
 def test_session_token_expired():
     token = create_session_token("u", "viewer", expires_seconds=-1)
     import jwt as _jwt
+
     with pytest.raises(_jwt.ExpiredSignatureError):
         decode_session_token(token)
 
@@ -73,3 +74,33 @@ async def test_rate_limiter_window_expiry():
     # make the window appear as past (old timestamp)
     rl._mem["k2"] = [time.time() - 120]
     assert await rl.check("k2", limit=1, window_seconds=60) is True
+
+
+class _FakeRedis:
+    """Minimal INCR/EXPIRE surface: enough to prove the window starts once."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, int] = {}
+        self.expires: list[tuple[str, int]] = []
+
+    async def incr(self, key: str) -> int:
+        self.values[key] = self.values.get(key, 0) + 1
+        return self.values[key]
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        self.expires.append((key, seconds))
+        return True
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_sets_the_ttl_only_when_the_window_opens():
+    rl = RateLimiter()
+    fake = _FakeRedis()
+    rl._redis = fake
+    rl._redis_tried = True
+
+    for _ in range(5):
+        assert await rl.check("k3", limit=10, window_seconds=60) is True
+
+    # A TTL refreshed on every hit would never let the window drain.
+    assert fake.expires == [("k3", 60)]
