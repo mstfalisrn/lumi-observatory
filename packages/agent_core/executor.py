@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from connectors.flop_mcp import FlopMcpConnector
 from connectors.github import GithubRepoConnector
 from connectors.http_json import HttpJsonConnector
 from connectors.internal_health import InternalHealthConnector
@@ -111,6 +112,20 @@ def build_default_registry(
             raise RuntimeError("Technocore disabled (set TECHNOCORE_ENABLED=true)")
         return await tc.signed_post(room, payload, idempotency_key=idempotency_key)
 
+    flop_mcp = FlopMcpConnector()
+
+    async def _flop_mcp_read(tool: str, arguments: dict | None = None):  # type: ignore[no-untyped-def]
+        return await flop_mcp.call_tool(tool, arguments)
+
+    reg.register(
+        "flop_mcp_read",
+        _flop_mcp_read,
+        {"name": "flop_mcp_read",
+         "description": "FLOP Network read-only MCP tools (chain stats, settlements, pricing, knowledge)",
+         "parameters": {"type": "object", "properties": {
+             "tool": {"type": "string"}, "arguments": {"type": "object"}},
+             "required": ["tool"]}},
+    )
     reg.register(
         "technocore_read",
         _tc_read,

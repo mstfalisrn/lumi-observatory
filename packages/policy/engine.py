@@ -29,6 +29,7 @@ TOOL_TO_ACTION = {
     "github_repo_read": ActionClass.READ_ONLY.value,
     "http_json_read": ActionClass.READ_ONLY.value,
     "internal_health": ActionClass.READ_ONLY.value,
+    "flop_mcp_read": ActionClass.READ_ONLY.value,
     # Write
     "technocore_signed_write": ActionClass.PUBLIC_WRITE.value,
     "db_self_write": ActionClass.SAFE_WRITE.value,   # only LUMI's own DB

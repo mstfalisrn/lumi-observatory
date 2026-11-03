@@ -28,6 +28,7 @@ REGISTERED_TOOL_NAMES = frozenset(
         "internal_health",
         "technocore_read",
         "technocore_signed_write",
+        "flop_mcp_read",
     }
 )
 _READ_ONLY_TOOL_NAMES = frozenset(
@@ -36,6 +37,7 @@ _READ_ONLY_TOOL_NAMES = frozenset(
         "github_repo_read",
         "internal_health",
         "technocore_read",
+        "flop_mcp_read",
     }
 )
 _SCOPE_REFERENCE = re.compile(r"^\$scope\.([a-zA-Z_][a-zA-Z0-9_]*)(?:\[(\d+)\])?$")

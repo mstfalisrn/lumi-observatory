@@ -1,0 +1,39 @@
+{
+  "id": "flop-network-observation",
+  "title": "FLOP network observation",
+  "description": "Reads the FLOP Network's own read surface through its hosted MCP server: chain stats, realized settlements, session offers and model pricing.",
+  "version": 1,
+  "execution_mode": "task",
+  "allowed_tools": [
+    "flop_mcp_read"
+  ],
+  "required_scope": [],
+  "actions": [
+    {
+      "tool": "flop_mcp_read",
+      "arguments": {
+        "tool": "flop_get_stats"
+      },
+      "reason": "Record the network's current state before any earning decision."
+    },
+    {
+      "tool": "flop_mcp_read",
+      "arguments": {
+        "tool": "flop_list_settlements",
+        "arguments": {
+          "limit": 5
+        }
+      },
+      "reason": "Record realized settlements so pricing is taken from the tape, not from memory."
+    }
+  ],
+  "evidence_contract": [
+    "Chain stats (block height, TPS, active operators) are recorded.",
+    "The five most recent realized settlements and their price per GFLOP are recorded."
+  ],
+  "safety_notes": [
+    "Read-only: the tool cannot post, sign or spend.",
+    "Only allowlisted MCP tools are callable; a tool the server adds later is refused until reviewed.",
+    "Responses are trimmed before they reach the model context."
+  ]
+}

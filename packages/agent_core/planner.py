@@ -20,6 +20,7 @@ KNOWN_TOOLS = (
     "http_json_read",
     "internal_health",
     "technocore_signed_write",
+    "flop_mcp_read",
 )
 
 
@@ -89,6 +90,7 @@ class Planner:
                     "- github_repo_read: {repo (required; only an exact repo from task scope.github_repos)}\n"
                     "- technocore_read: {room, since} (only configured rooms; only if Technocore enabled)\n"
                     "- internal_health: {}\n"
+                    "- flop_mcp_read: {tool (required; a read-only FLOP MCP tool name), arguments (object, optional)}\n"
                     "- technocore_signed_write: {room, payload, idempotency_key} (approval required; explicit scope only)\n"
                     "Action IDs must be sequential: action_1, action_2, ...\n"
                     "Do NOT infer URLs, repositories, rooms, identities, or write targets from prompt text.\n"
