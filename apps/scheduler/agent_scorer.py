@@ -27,11 +27,14 @@ except Exception:
 def configured_rooms(raw: str) -> list[str]:
     return [x.strip() for x in raw.split(",") if x.strip()]
 
+
 def _get_rooms() -> list[str]:
     from observability.config import settings as _s
+
     if not _s.TECHNOCORE_ENABLED or not _s.TECHNOCORE_MONITORED_ROOMS.strip():
         return []
     return configured_rooms(_s.TECHNOCORE_MONITORED_ROOMS)
+
 
 # Backward compat alias — tests may import ROOMS
 ROOMS: list[str] = _get_rooms()
@@ -53,14 +56,10 @@ class AgentScorer:
         self._last_react: dict[str, float] = {}
         # tclk/1 marketplace surveillance rooms (opt-in, parse-only, zero LLM)
         self._tclk_rooms = (
-            [r.strip() for r in settings.TCLK_MONITOR_ROOMS.split(",") if r.strip()]
-            if settings.TCLK_ENABLED
-            else []
+            [r.strip() for r in settings.TCLK_MONITOR_ROOMS.split(",") if r.strip()] if settings.TCLK_ENABLED else []
         )
         # tclk claim radar + safe agent state (in-memory ONLY; preimages never persisted)
-        self._tclk_claim_rails = {
-            r.strip() for r in settings.TCLK_AGENT_RAILS.split(",") if r.strip()
-        }
+        self._tclk_claim_rails = {r.strip() for r in settings.TCLK_AGENT_RAILS.split(",") if r.strip()}
         self._tclk_lock_rail: dict[str, str] = {}  # deal slug -> rail (from lock frames)
         self._tclk_claimed: set[str] = set()  # slugs already reported
         self._tclk_active: dict[str, dict] = {}  # ref -> pending accept (preimage in memory)
@@ -73,6 +72,9 @@ class AgentScorer:
         self._tclk_claim_seed: bytes | None = None  # derived from the DID key, never logged
         self._tclk_job_cache: dict[str, str] = {}  # job id -> brief (venue task room)
         self._tclk_job_cache_at: float = 0.0  # when the job index was last read
+        self._tclk_health: bool | None = None  # last producer health answer
+        self._tclk_health_at: float = 0.0  # when it was measured
+        self._tclk_health_alert_at: float = 0.0  # last time we warned about it
         self._tclk_agent_armed = False  # set after the DID key loads (below)
         # Load the signing key once (scheduler shares the worker DID identity).
         if settings.TECHNOCORE_ENABLED and settings.TECHNOCORE_ED25519_KEY_PATH:
@@ -83,9 +85,7 @@ class AgentScorer:
                 log.warning("technocore key load failed: %s", str(e)[:150])
         # Agent mode arms only once the DID identity is actually loaded.
         self._tclk_agent_armed = bool(
-            settings.TCLK_ENABLED
-            and settings.TCLK_AGENT_ENABLED
-            and getattr(self._connector, "did_public", "")
+            settings.TCLK_ENABLED and settings.TCLK_AGENT_ENABLED and getattr(self._connector, "did_public", "")
         )
         if self._tclk_agent_armed:
             log.info(
@@ -407,9 +407,7 @@ class AgentScorer:
                         try:
                             await self._tclk_on_offer(session, frame, room, seq)
                         except Exception as e:
-                            log.warning(
-                                "tclk offer audit failed seq=%s: %s", seq, type(e).__name__
-                            )
+                            log.warning("tclk offer audit failed seq=%s: %s", seq, type(e).__name__)
                     continue
                 dr = frame.deal_room()
                 slug16 = dr[len("mb-p-tclk-") :] if dr else ""
@@ -423,7 +421,11 @@ class AgentScorer:
                                 await self._tclk_on_lock(session, slug16, frame)
                         elif frame.kind == "reveal":
                             rail = self._tclk_lock_rail.get(slug16, "")
-                            if settings.TCLK_CLAIM_RADAR_ENABLED and rail in self._tclk_claim_rails and slug16 not in self._tclk_claimed:
+                            if (
+                                settings.TCLK_CLAIM_RADAR_ENABLED
+                                and rail in self._tclk_claim_rails
+                                and slug16 not in self._tclk_claimed
+                            ):
                                 self._tclk_claimed.add(slug16)
                                 ours = any(p.get("slug") == slug16 for p in self._tclk_active.values())
                                 await self._tclk_alert_claim(slug16, rail, ours=ours)
@@ -482,9 +484,7 @@ class AgentScorer:
         # Operator ceiling: never act above the risk the operator accepted.
         if audit["decision"] == "accept" and not _risk_ok(audit["risk"], settings.TCLK_AGENT_MIN_TIER):
             audit["decision"] = "skip"
-            audit["reason"] = (
-                f"audit risk {audit['risk']} over ceiling {settings.TCLK_AGENT_MIN_TIER}"
-            )
+            audit["reason"] = f"audit risk {audit['risk']} over ceiling {settings.TCLK_AGENT_MIN_TIER}"
         # Brief resolution is the precondition for accepting at all: an offer
         # whose brief cannot be resolved (no inline spec AND no resolvable `job`
         # pointer) is a public promise we break — the deal runs, no answer ships,
@@ -500,9 +500,7 @@ class AgentScorer:
         audit["checks"]["family"] = family
         if audit["decision"] == "accept" and not self._tclk_rate_ok(family):
             audit["decision"] = "skip"
-            audit["reason"] = (
-                f"rate limit {settings.TCLK_AGENT_ACCEPT_PER_HOUR}/h reached (lane {family})"
-            )
+            audit["reason"] = f"rate limit {settings.TCLK_AGENT_ACCEPT_PER_HOUR}/h reached (lane {family})"
         self._tclk_prune_active()
         if audit["decision"] == "accept" and len(self._tclk_active) >= settings.TCLK_AGENT_MAX_ACTIVE:
             audit["decision"] = "skip"
@@ -565,6 +563,10 @@ class AgentScorer:
             "locked": False,
             "spec": _tclk_spec_short(frame),
         }
+        if not await self._tclk_producer_healthy():
+            log.info("tclk accept skipped: producer not healthy offering=%s", offer_ref[:18])
+            self._tclk_active.pop(contract, None)
+            return
         try:
             await self._connector.signed_post(
                 self._tclk_rooms[0],
@@ -625,9 +627,7 @@ class AgentScorer:
             if answer is not None:
                 self._tclk_active[contract]["answer"] = answer
                 try:
-                    await self._connector.signed_post(
-                        room_key, build_delivery(contract=contract, body=answer)
-                    )
+                    await self._connector.signed_post(room_key, build_delivery(contract=contract, body=answer))
                     self._tclk_delivered.add(contract)
                     log.info("tclk delivery posted contract=%s answer=%s", contract[:18], answer[:90])
                     outcome = "delivered"
@@ -687,6 +687,52 @@ class AgentScorer:
             self._tclk_job_cache = found
             self._tclk_job_cache_at = now
         return self._tclk_job_cache
+
+    async def _tclk_producer_healthy(self, ttl: float = 300.0) -> bool:
+        """Can we actually deliver? Measured with one tiny call, cached for five minutes.
+
+        Accepting an offer is a public commitment; shipping nothing burns the market's
+        trust. So an expired key or a dead provider must stop the accept, not surface
+        later as "could not solve".
+        """
+        now = time.time()
+        if self._tclk_health is not None and now - self._tclk_health_at < ttl:
+            return self._tclk_health
+        self._tclk_health_at = now
+        try:
+            try:
+                from packages.agent_core.llm import LLMMessage, build_provider
+            except ImportError:
+                from agent_core.llm import LLMMessage, build_provider
+            provider = build_provider()
+            if getattr(provider, "name", "") == "mock":
+                self._tclk_health = False
+            else:
+                res = await asyncio.wait_for(
+                    provider.chat(
+                        [LLMMessage("user", "Reply with the single word: ok")],
+                        max_tokens=4,
+                        purpose="tclk-health",
+                    ),
+                    20.0,
+                )
+                self._tclk_health = bool((getattr(res, "text", "") or "").strip())
+        except Exception as e:
+            log.warning("tclk producer health check failed: %s", type(e).__name__)
+            self._tclk_health = False
+        if not self._tclk_health and now - self._tclk_health_alert_at > 1800:
+            self._tclk_health_alert_at = now
+            try:
+                from connectors.agent_alert import send_telegram_text
+
+                await send_telegram_text(
+                    "🛑 tclk agent: üretici (LLM) yanıt vermiyor — bu yüzden yeni teklif "
+                    "KABUL EDİLMİYOR. Teslim edemeyeceğimiz işe söz vermiyoruz. "
+                    "Neden: sağlayıcı anahtarı/kotası. Düzelince kabul otomatik döner."
+                )
+            except Exception:
+                pass
+        return self._tclk_health
 
     async def _tclk_brief(self, frame) -> str:
         """The offer's brief: its inline text, else the job it points at.
@@ -887,9 +933,7 @@ class AgentScorer:
         if ttl <= 0:
             return
         now = time.time()
-        for key in [
-            k for k, v in self._tclk_active.items() if now - float(v.get("accepted_at") or 0) > ttl
-        ]:
+        for key in [k for k, v in self._tclk_active.items() if now - float(v.get("accepted_at") or 0) > ttl]:
             self._tclk_active.pop(key, None)
 
     def _tclk_rate_ok(self, family: str = "") -> bool:
@@ -1044,9 +1088,7 @@ class AgentScorer:
             from observability.models import TclkOfferAuditRow
 
             await session.execute(
-                _update(TclkOfferAuditRow)
-                .where(TclkOfferAuditRow.contract == contract)
-                .values(outcome="claimed")
+                _update(TclkOfferAuditRow).where(TclkOfferAuditRow.contract == contract).values(outcome="claimed")
             )
             await session.flush()
         except Exception as e:
@@ -1273,10 +1315,7 @@ class AgentScorer:
             rows = (
                 await session.execute(
                     select(TclkFrameRow.kind, func.count())
-                    .where(
-                        TclkFrameRow.created_at
-                        >= func.now() - text("interval '24 hours'")
-                    )
+                    .where(TclkFrameRow.created_at >= func.now() - text("interval '24 hours'"))
                     .group_by(TclkFrameRow.kind)
                 )
             ).all()
@@ -1290,10 +1329,7 @@ class AgentScorer:
         from connectors.agent_alert import send_telegram_text
 
         who = "LUMI's own task" if ours else "an external agent"
-        msg = (
-            f"🏁 tclk CLAIM RADAR: a real payment settled on rail *{rail}* "
-            f"({who}) — deal room `mb-p-tclk-{slug16}`"
-        )
+        msg = f"🏁 tclk CLAIM RADAR: a real payment settled on rail *{rail}* ({who}) — deal room `mb-p-tclk-{slug16}`"
         ok = await send_telegram_text(msg)
         if ok and ours:
             self._tclk_active = {k: v for k, v in self._tclk_active.items() if v.get("slug") != slug16}
@@ -1408,8 +1444,7 @@ async def _jev_offer_audit(frame) -> dict:
         "tier": {
             "type": "choice",
             "instructions": (
-                "Assign the security risk tier for accepting this offer: what could it "
-                "draw the agent into?"
+                "Assign the security risk tier for accepting this offer: what could it draw the agent into?"
             ),
             "criteria": {
                 "SAFE": "plain read-only task, no counterparty pressure, nothing hidden",
