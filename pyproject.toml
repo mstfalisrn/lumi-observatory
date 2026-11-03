@@ -55,3 +55,6 @@ exclude_lines = [
 
 [tool.bandit]
 exclude_dirs = ["tests", "migrations", "apps/web"]
+
+[project.optional-dependencies]
+flop = ["flop-sdk>=0.2.0"]

@@ -111,17 +111,17 @@ def test_spend_fails_closed_while_the_feature_is_off():
     assert row["reason"] == "disabled"
 
 
-def test_spend_fails_closed_without_a_published_client():
-    row = fc.attempt_spend("open_channel", 40, principal=1200, enabled=True, client_ok=False)
+def test_spend_fails_closed_on_a_leg_the_sdk_does_not_expose():
+    row = fc.attempt_spend("open_channel", 40, principal=1200, enabled=True, client_ok=True)
     assert row["kind"] == "blocked"
-    assert row["reason"] == "client_unavailable"
-    assert "node client" in row["detail"]
+    assert row["reason"] == "sdk_call_missing"
+    assert "flop-sdk" in row["detail"]
 
 
 def test_client_call_never_invents_an_interface():
     outcome = fc.client_call("open_channel", 40)
     assert outcome["ok"] is False
-    assert outcome["reason"] == "client_unavailable"
+    assert outcome["reason"] in {"sdk_call_missing", "client_unavailable"}
 
 
 def test_dry_run_records_intent_and_is_not_a_spend(tmp_path):
@@ -225,3 +225,43 @@ def test_cli_status_json_and_fail_closed_exit_code(tmp_path):
     assert result["kind"] == "blocked"
     assert result["reason"] in {"disabled", "client_unavailable"}
     assert (tmp_path / fc.LEDGER_NAME).exists()
+
+
+def test_live_price_reads_the_settlement_tape(monkeypatch):
+    import json as _json
+
+    import connectors.flop_mcp as mcp_mod
+
+    class FakeMcp:
+        def __init__(self, *a, **k):
+            pass
+
+        async def settlements(self, n):
+            return {"text": _json.dumps({"data": [{"pricePerGflop": "100"}, {"pricePerGflop": "300"}]})}
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(mcp_mod, "FlopMcpConnector", FakeMcp)
+    res = fc.live_price(2)
+    assert res["ok"] is True
+    assert res["samples"] == 2
+    assert res["price_per_gflop_median"] == 300
+    assert res["price_per_gflop_min"] == 100
+
+
+def test_live_price_never_invents_a_price(monkeypatch):
+    import connectors.flop_mcp as mcp_mod
+
+    class Empty:
+        def __init__(self, *a, **k):
+            pass
+
+        async def settlements(self, n):
+            return {"text": '{"data": []}'}
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr(mcp_mod, "FlopMcpConnector", Empty)
+    assert fc.live_price(3)["reason"] == "no_settlements"

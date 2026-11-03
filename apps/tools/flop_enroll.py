@@ -56,6 +56,20 @@ def http(method: str, path: str, payload: dict | None = None, key: str | None = 
         return json.loads(resp.read())
 
 
+def key_still_valid() -> bool:
+    """Cheap pre-check: is the stored gateway key still accepted?"""
+    try:
+        import sys as _sys
+        from pathlib import Path as _Path
+
+        _sys.path.insert(0, str(_Path(__file__).resolve().parents[2] / "apps" / "earn"))
+        import flop_gateway
+
+        return bool(flop_gateway.available() and flop_gateway.status().get("ok"))
+    except Exception:
+        return False
+
+
 def main() -> int:
     seed = open(SEED, "rb").read()
     if len(seed) != 32:
@@ -107,4 +121,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if "--if-needed" in sys.argv:
+        if key_still_valid():
+            print("ENROLL_SKIP key still valid")
+            sys.exit(0)
+        print("ENROLL_REFRESH key rejected or expired — re-enrolling")
+        sys.argv = [a for a in sys.argv if a != "--if-needed"]
     sys.exit(main())

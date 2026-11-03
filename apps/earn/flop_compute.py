@@ -46,10 +46,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
+import re
 import shutil
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -179,6 +182,18 @@ def client_available() -> bool:
     return bool(cli and (Path(cli).exists() or shutil.which(cli)))
 
 
+def _chain():
+    """Lazy chain client (flop-sdk is an optional extra)."""
+    try:
+        from apps.earn import flop_chain
+    except ImportError:  # pragma: no cover - script layout
+        try:
+            import flop_chain  # type: ignore[no-redef]
+        except ImportError:
+            return None
+    return flop_chain.FlopChainConnector()
+
+
 def client_call(call: str, amount_flop: int) -> dict:
     """The single place a spend becomes real.
 
@@ -186,7 +201,26 @@ def client_call(call: str, amount_flop: int) -> dict:
     makes in production, and the only leg with a published client. The four chain calls
     stay refused until a node client ships — no call is invented for them.
     """
+    if call == "agent_transfer":
+        chain = _chain()
+        if chain is None:
+            return {"ok": False, "reason": "client_unavailable", "detail": "flop-sdk not installed"}
+        destination = os.environ.get("FLOP_TRANSFER_TO", "").strip()
+        if not destination:
+            return {"ok": False, "reason": "destination_unset", "detail": "set FLOP_TRANSFER_TO"}
+        return chain.call("agent_transfer", destination=destination, amount=amount_flop)
+
     if call == "compute_completion":
+        chain = _chain()
+        if chain is not None and chain.available():
+            return asyncio.run(
+                chain.call(
+                    "compute_completion",
+                    model=os.environ.get("FLOP_GATEWAY_MODEL", "qwen/qwen2.5-0.5b-instruct"),
+                    prompt="Reply with the single word: ready",
+                    max_flop=amount_flop,
+                )
+            )
         gateway = _gateway()
         if gateway is None or not gateway.available():
             return {
@@ -218,10 +252,10 @@ def client_call(call: str, amount_flop: int) -> dict:
         }
     return {
         "ok": False,
-        "reason": "client_unavailable",
+        "reason": "sdk_call_missing",
         "detail": (
-            "the four chain calls need a FLOP node client; no public release exists. "
-            "Set FLOP_CLI or FLOP_TESTNET_RPC and implement client_call() for that interface"
+            f"flop-sdk 0.2.0 exposes agent_transfer and buy_verified_inference, not {call}; "
+            "wait for the SDK to publish this extrinsic"
         ),
         "call": call,
         "amount_flop": amount_flop,
@@ -351,6 +385,72 @@ def summarize(rows: list[dict]) -> dict:
     }
 
 
+def live_price(samples: int = 5) -> dict:
+    """Observed compute price from the network's own MCP read surface.
+
+    The tape is the honest source: realized settlements carry ``pricePerGflop``. Nothing
+    here invents a price when the network has no settlements yet.
+    """
+    connector = _gateway()
+    packages_dir = Path(__file__).resolve().parents[2] / "packages"
+    if str(packages_dir) not in sys.path:
+        sys.path.insert(0, str(packages_dir))
+    try:
+        from connectors.flop_mcp import FlopMcpConnector
+    except ImportError:  # pragma: no cover - script layout
+        try:
+            from flop_mcp import FlopMcpConnector  # type: ignore[no-redef]
+        except ImportError:
+            return {"ok": False, "reason": "mcp_connector_missing"}
+    del connector
+
+    async def _fetch() -> dict:
+        mcp = FlopMcpConnector(max_chars=60_000)
+        try:
+            res = await mcp.settlements(samples)
+        finally:
+            await mcp.aclose()
+        text = res.get("text") or "{}"
+        try:
+            body = json.loads(text)
+        except ValueError:
+            # The tape is truncated for the model context; the price field survives it.
+            prices = [int(m) for m in re.findall(r'"pricePerGflop"\s*:\s*"(\d+)', text)]
+            if not prices:
+                return {"ok": False, "reason": "unparsable_tape", "truncated": True}
+            return {
+                "ok": True,
+                "samples": len(prices),
+                "price_per_gflop_median": sorted(prices)[len(prices) // 2],
+                "price_per_gflop_min": min(prices),
+                "price_per_gflop_max": max(prices),
+                "source": "mcp.flop.network:flop_list_settlements",
+                "parsed": "regex_fallback",
+            }
+        rows = body.get("data") if isinstance(body.get("data"), list) else []
+        prices = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            raw = row.get("pricePerGflop")
+            try:
+                prices.append(float(str(raw).split(".")[0]))
+            except (TypeError, ValueError):
+                continue
+        if not prices:
+            return {"ok": False, "reason": "no_settlements", "samples": 0}
+        return {
+            "ok": True,
+            "samples": len(prices),
+            "price_per_gflop_median": sorted(prices)[len(prices) // 2],
+            "price_per_gflop_min": min(prices),
+            "price_per_gflop_max": max(prices),
+            "source": "mcp.flop.network:flop_list_settlements",
+        }
+
+    return asyncio.run(_fetch())
+
+
 def status(directory: Path | None = None) -> dict:
     directory = directory or state_dir()
     principal = principal_from_env()
@@ -361,6 +461,8 @@ def status(directory: Path | None = None) -> dict:
         "client_available": client_available(),
         "state_dir": str(directory),
         "ledger": str(directory / LEDGER_NAME),
+        "chain_client": (_chain().reason() if _chain() is not None else "sdk_missing"),
+        "live_price": live_price(3),
         "spendable_calls": list(SPENDABLE_CALLS),
         "credit_calls": list(COMPUTE_CREDIT_CALLS),
         "plan": plan(principal, summary["spent_flop"], cap_ratio_from_env()),
@@ -384,9 +486,38 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--amount", type=int, default=0, metavar="FLOP")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     parser.add_argument("--ledger", action="store_true", help="dump the ledger roll-up only")
+    parser.add_argument("--live-price", action="store_true", help="observed price from the MCP tape")
+    parser.add_argument("--loop", type=int, metavar="N", help="repeat compute_completion N times, fail-closed")
+    parser.add_argument("--interval", type=float, default=60.0, metavar="SECONDS")
     args = parser.parse_args(argv)
 
-    if args.plan is not None:
+    if args.live_price:
+        payload: dict = {"live_price": live_price()}
+    elif args.loop:
+        rows = read_ledger()
+        spent = summarize(rows)["spent_flop"]
+        attempts = 0
+        stop_reason = ""
+        while attempts < args.loop:
+            attempts += 1
+            row = attempt_spend(
+                call="compute_completion",
+                amount_flop=args.amount,
+                principal=principal_from_env(),
+                spent_flop=spent,
+                ratio=cap_ratio_from_env(),
+            )
+            record(row)
+            print(json.dumps(row, sort_keys=True), flush=True)
+            if row.get("kind") == "spend":
+                spent += args.amount
+                if attempts < args.loop:
+                    time.sleep(max(0.0, args.interval))
+                continue
+            stop_reason = row.get("reason", "blocked")
+            break
+        payload = {"loop": {"attempts": attempts, "stop_reason": stop_reason or "completed", "spent_flop": spent}}
+    elif args.plan is not None:
         payload: dict = {"plan": plan(args.plan, 0, cap_ratio_from_env())}
     elif args.spend or args.dry_run:
         rows = read_ledger()
