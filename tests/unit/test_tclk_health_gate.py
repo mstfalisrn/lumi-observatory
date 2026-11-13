@@ -100,3 +100,43 @@ async def test_cache_expires(monkeypatch) -> None:
     scorer._tclk_health_at = time.time() - 400
     assert await scorer._tclk_producer_healthy() is True
     assert good.calls == 2
+
+
+class FlakyConnector:
+    def __init__(self, failures: int) -> None:
+        self.failures = failures
+        self.posts = 0
+
+    async def signed_post(self, room, frame):
+        self.posts += 1
+        if self.posts <= self.failures:
+            raise RuntimeError("TechnocoreError")
+        return True
+
+
+@pytest.mark.asyncio
+async def test_delivery_retries_a_transient_failure(monkeypatch) -> None:
+    import apps.scheduler.agent_scorer as mod
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(mod.asyncio, "sleep", no_sleep)
+    scorer = fresh()
+    scorer._connector = FlakyConnector(failures=2)
+    assert await scorer._tclk_send("room", "frame") is True
+    assert scorer._connector.posts == 3
+
+
+@pytest.mark.asyncio
+async def test_delivery_gives_up_after_three_attempts(monkeypatch) -> None:
+    import apps.scheduler.agent_scorer as mod
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(mod.asyncio, "sleep", no_sleep)
+    scorer = fresh()
+    scorer._connector = FlakyConnector(failures=5)
+    assert await scorer._tclk_send("room", "frame") is False
+    assert scorer._connector.posts == 3

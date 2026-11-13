@@ -25,12 +25,25 @@ LUMI keeps working without substrate-interface installed.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 from pathlib import Path
 
 DEFAULT_SEED_PATH = "/root/secrets/lumi-observatory/did.ed25519"
 SDK_LEGS = ("agent_transfer", "compute_completion")
 MISSING_LEGS = ("open_channel", "top_up_escrow", "force_open")
+
+
+def _classify(exc: Exception) -> dict:
+    """Name the failure so a runtime gap is not mistaken for a funding problem."""
+    text = str(exc)
+    if "Unsupported runtime spec version" in text:
+        return {"reason": "sdk_runtime_unsupported"}
+    if "Insufficient" in text or "FundsUnavailable" in text or "balance" in text.lower():
+        return {"reason": "insufficient_balance"}
+    if "TEE" in text or "tee" in text:
+        return {"reason": "tee_requirement"}
+    return {"reason": "chain_error"}
 
 
 class FlopChainError(RuntimeError):
@@ -115,11 +128,13 @@ class FlopChainConnector:
         reason = self.reason()
         if reason:
             return {"ok": False, "reason": reason, "detail": "chain client unavailable"}
-        client = self._build_client()
-
-        def _call() -> dict:
+        try:
+            client = await asyncio.to_thread(self._build_client)
             params = {"model": model, "prompt": prompt, "max_flop": float(max_flop)}
             receipt = client.buy_verified_inference(params)
+            # 0.3.0 turned the client async; 0.2.x was sync. Support both.
+            if inspect.isawaitable(receipt):
+                receipt = await receipt
             return {
                 "ok": True,
                 "tx": getattr(receipt, "tx_hash", ""),
@@ -127,28 +142,27 @@ class FlopChainConnector:
                 "gn_used": getattr(receipt, "gn_used", None),
                 "block": getattr(receipt, "block_number", None),
             }
-
-        try:
-            return await asyncio.to_thread(_call)
         except Exception as exc:  # SDK raises its own FLOPError tree
-            return {"ok": False, "reason": "chain_error", "detail": str(exc)[:300]}
+            return {"ok": False, **_classify(exc), "detail": str(exc)[:300]}
 
     async def agent_transfer(self, destination: str, amount: float) -> dict:
         reason = self.reason()
         if reason:
             return {"ok": False, "reason": reason, "detail": "chain client unavailable"}
-        client = self._build_client()
-
-        def _call() -> dict:
-            from flop_sdk.agent_wallet import agent_transfer
-
-            tx = agent_transfer(client, destination, float(amount))
-            return {"ok": True, "tx": tx, "destination": destination, "amount": amount}
-
         try:
-            return await asyncio.to_thread(_call)
+            client = await asyncio.to_thread(self._build_client)
+
+            def _call():
+                from flop_sdk.agent_wallet import agent_transfer
+
+                return agent_transfer(client, destination, float(amount))
+
+            tx = await asyncio.to_thread(_call)
+            if inspect.isawaitable(tx):
+                tx = await tx
+            return {"ok": True, "tx": tx, "destination": destination, "amount": amount}
         except Exception as exc:
-            return {"ok": False, "reason": "chain_error", "detail": str(exc)[:300]}
+            return {"ok": False, **_classify(exc), "detail": str(exc)[:300]}
 
     async def call(self, leg: str, **kw) -> dict:
         if leg == "compute_completion":

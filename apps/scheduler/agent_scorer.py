@@ -584,7 +584,7 @@ class AgentScorer:
             # deal room. It creates the room, tells the payer we are live, and is
             # where the deliverable and the reveal have to land.
             try:
-                await self._connector.signed_post(
+                await self._tclk_send(
                     room_key,
                     build_heartbeat(
                         sender=sender,
@@ -592,6 +592,7 @@ class AgentScorer:
                         nonce=new_nonce(),
                         note="lumi accepted, working",
                     ),
+                    attempts=2,
                 )
                 if room_key not in self._tclk_rooms:
                     self._tclk_rooms.append(room_key)
@@ -687,6 +688,23 @@ class AgentScorer:
             self._tclk_job_cache = found
             self._tclk_job_cache_at = now
         return self._tclk_job_cache
+
+    async def _tclk_send(self, room: str, frame: str, *, attempts: int = 3) -> bool:
+        """Post a frame, retrying a transient transport failure.
+
+        A delivery that dies on one failed POST is a lost deal: the payer never sees
+        the work and the accept stands. Retry with a short backoff before giving up.
+        """
+        for attempt in range(1, attempts + 1):
+            try:
+                await self._connector.signed_post(room, frame)
+                return True
+            except Exception as e:
+                if attempt == attempts:
+                    log.warning("tclk post failed after %d attempts: %s", attempts, type(e).__name__)
+                    return False
+                await asyncio.sleep(2.0 * attempt)
+        return False
 
     async def _tclk_producer_healthy(self, ttl: float = 300.0) -> bool:
         """Can we actually deliver? Measured with one tiny call, cached for five minutes.

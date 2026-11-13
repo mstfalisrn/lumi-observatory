@@ -94,7 +94,7 @@ async def test_buy_inference_reports_chain_errors(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(conn, "reason", lambda: None)
     res = await conn.buy_inference("m", "p", 1)
     assert res["ok"] is False
-    assert res["reason"] == "chain_error"
+    assert res["reason"] == "insufficient_balance"
     assert "InsufficientBalance" in res["detail"]
 
 
@@ -110,3 +110,28 @@ async def test_unexposed_legs_are_named(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_unknown_leg(tmp_path) -> None:
     assert (await make(tmp_path).call("steal_funds"))["reason"] == "unknown_call"
+
+
+@pytest.mark.asyncio
+async def test_runtime_gap_is_named_not_blamed_on_funding(monkeypatch, tmp_path) -> None:
+    class OldSdk(FakeClient):
+        def buy_verified_inference(self, params):
+            raise RuntimeError("Unsupported runtime spec version 1014020")
+
+    conn = make(tmp_path, rpc_url="http://x", enabled=True, client_factory=lambda *a: OldSdk())
+    monkeypatch.setattr(conn, "reason", lambda: None)
+    res = await conn.buy_inference("m", "p", 1)
+    assert res["reason"] == "sdk_runtime_unsupported"
+
+
+@pytest.mark.asyncio
+async def test_async_receipts_from_sdk_030_are_awaited(monkeypatch, tmp_path) -> None:
+    class AsyncClient(FakeClient):
+        async def buy_verified_inference(self, params):
+            return FakeReceipt()
+
+    conn = make(tmp_path, rpc_url="http://x", enabled=True, client_factory=lambda *a: AsyncClient())
+    monkeypatch.setattr(conn, "reason", lambda: None)
+    res = await conn.buy_inference("m", "p", 2)
+    assert res["ok"] is True
+    assert res["tx"] == "0xdeadbeef"

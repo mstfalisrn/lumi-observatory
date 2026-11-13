@@ -98,7 +98,23 @@ Standalone loops in `apps/earn/`, runnable as host services or containers:
 | `kibble.py` | Kibble JOB → CLAIM → RESULT loop |
 | `close1.py` | close-1 position keeper |
 | `blockrewards.py` | judged-deal worker (feed cursor, offer cache, retry queue, deal-room lock watch) |
-| `flop_compute.py` | FLOP testnet compute-spend lane — the agent-cohort credit path (`--status`, `--plan`, `--dry-run`, `--spend`) |
+| `flop_compute.py` | FLOP testnet compute-spend lane — the agent-cohort credit path (`--status`, `--plan`, `--dry-run`, `--spend`, `--live-price`, `--loop N`) |
+| `flop_chain.py` | Chain legs through `flop-sdk`: `agent_transfer`, `buy_verified_inference`; the legs the SDK does not expose are refused, not faked |
+
+### FLOP read surface
+`packages/connectors/flop_mcp.py` speaks JSON-RPC to FLOP's hosted MCP server
+(`https://mcp.flop.network/mcp`), which publishes the network's own view: chain
+stats, realized settlements with `pricePerGflop`, session offers, model pricing
+and miner ranking. The planner reaches it through `flop_mcp_read` (`READ_ONLY`),
+with an explicit allowlist of reviewed tools and trimmed responses — a tool the
+server adds later is refused until it is listed. `flop_compute --live-price`
+takes its price from that settlement tape rather than a constant.
+
+Two client generations exist and must not be confused: the npm CLI
+(`@flop-labs/cli`) tracks the current runtime, while the Python `flop-sdk`
+(0.3.0) lags it — against devnet runtime `1014020` the SDK refuses to talk
+(`sdk_runtime_unsupported`), which the connector names instead of reporting a
+funding problem. The HTTP rail check is spec-agnostic and keeps working.
 
 The logs dashboard (`apps/logs`) renders rail-aware earnings and the `/summary` JSON: `locks_flop_htlc` (frame count, plus `lock_contracts_flop_htlc` for distinct contracts) is the headline, `locks_other_rails` sits beside it as the simulation it is — counts are observations, never balances.
 

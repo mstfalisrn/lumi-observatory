@@ -3,6 +3,20 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-13
+### Added
+- `packages/connectors/flop_mcp.py`: read-only client for FLOP's hosted MCP server, exposed to the planner as `flop_mcp_read` with an explicit allowlist of reviewed tools, trimmed responses and a `READ_ONLY` policy class; the `flop-network-observation` skill records chain stats plus the last five settlements as evidence
+- `apps/earn/flop_chain.py`: chain legs through `flop-sdk` — `agent_transfer` and `buy_verified_inference`, with async and sync SDK generations both handled; legs the SDK does not expose are refused with `sdk_call_missing`, and a runtime gap is reported as `sdk_runtime_unsupported`
+- `flop_compute --live-price`: the observed `pricePerGflop` from the settlement tape (median/min/max), with a regex fallback for a truncated tape and no invented price when the network has no settlements
+- `flop_compute --loop N --interval S`: repeated purchases that stop at the first refusal and ledger every attempt
+- `flop_enroll --if-needed`: skips when the stored key still answers, so the daily refresh only acts on a real expiry
+- `apps/tools/flop_day0.sh`: the testnet day-0 runbook — key, chain pin, funding, gateway, live completion, observed price — stopping at the first blocker with its exit code
+
+### Fixed
+- API rate limiter set the window TTL on every hit, so a client that kept requesting never left the window; the TTL is now set when the counter is created
+- tclk delivery retried a transient transport failure instead of losing the deal, and the accept is now gated on producer health: an expired provider key blocks the public accept and warns once per 30 minutes instead of leaving accepts that never deliver
+
+
 ## [1.2.2] - 2026-10-06
 ### Fixed
 - Protocol transcript timestamps ending in `Z` are parsed as UTC and retain fractional-second precision, so expiry, refund and cancellation decisions no longer depend on the host timezone
