@@ -99,6 +99,7 @@ Standalone loops in `apps/earn/`, runnable as host services or containers:
 | `close1.py` | close-1 position keeper |
 | `blockrewards.py` | judged-deal worker (feed cursor, offer cache, retry queue, deal-room lock watch) |
 | `flop_compute.py` | FLOP testnet compute-spend lane — the agent-cohort credit path (`--status`, `--plan`, `--dry-run`, `--spend`, `--live-price`, `--loop N`) |
+| `flop_validator_preflight.py` (tools) | host/package/admission check for the validator cohort — exit code names the first blocker |
 | `flop_chain.py` | Chain legs through `flop-sdk`: `agent_transfer`, `buy_verified_inference`; the legs the SDK does not expose are refused, not faked |
 
 ### FLOP read surface

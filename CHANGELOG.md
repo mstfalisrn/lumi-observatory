@@ -3,6 +3,15 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-15
+### Added
+- `apps/tools/flop_validator_preflight.py` + `docs/VALIDATOR.md`: the validator cohort without a GPU — host, port, genesis-pin, package-checksum, `da-peers.json` and account checks, each blocker named by exit code; admission stays external
+- `apps/tools/flop_auto_spend.sh`: one daily compute-spend tick that stays silent when the lane is blocked, so testnet credit accrues without attention
+- `apps/tools/flop_frcr_archive.py`: append-only daily snapshot of block height, realized `pricePerGflop` (min/median/max), settlement count and served models
+- `apps/tools/kol_queue.py` + `docs/kol/queue.json`: English KOL drafts with a `{link}` slot, rendered and marked published only once the referral link exists
+- Scheduled jobs: daily FRCR archive (local) and a daily spend tick that speaks only when a purchase completed
+
+
 ## [1.3.0] - 2026-11-13
 ### Added
 - `packages/connectors/flop_mcp.py`: read-only client for FLOP's hosted MCP server, exposed to the planner as `flop_mcp_read` with an explicit allowlist of reviewed tools, trimmed responses and a `READ_ONLY` policy class; the `flop-network-observation` skill records chain stats plus the last five settlements as evidence

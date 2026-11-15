@@ -1,6 +1,6 @@
 [project]
 name = "lumi-observatory"
-version = "1.3.0"
+version = "1.4.0"
 description = "Observable, policy-gated agentic runtime"
 requires-python = ">=3.12"
 

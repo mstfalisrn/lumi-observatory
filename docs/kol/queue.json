@@ -1,0 +1,21 @@
+{
+  "note": "Drafts wait for the referral link: attribution is the link, so publishing earlier earns nothing. Keep every post under 280 characters after {link} is substituted.",
+  "link": "",
+  "posts": [
+    {
+      "id": "mcp-tape",
+      "status": "draft",
+      "text": "FLOP publishes a hosted MCP server for the network itself: 34 read-only tools — chain stats, settlements, model pricing.\n\nLUMI now reads that instead of a hard-coded price. An agent should price compute from the tape, not from vibes.\n\n{link}"
+    },
+    {
+      "id": "price-tape",
+      "status": "draft",
+      "text": "Most agent stacks assume an inference price. FLOP's settlements carry the price per GFLOP that was actually paid.\n\nWe archive the median/min/max daily and size the channel budget from it. First number beats the first opinion.\n\n{link}"
+    },
+    {
+      "id": "spend-cap",
+      "status": "draft",
+      "text": "Agent grants on FLOP unlock by spending: 3 FLOP of compute, 1 FLOP liquid, capped at three quarters of principal.\n\nSo an agent that sits idle stays locked. Budget the spend path before the grant lands, not after.\n\n{link}"
+    }
+  ]
+}
