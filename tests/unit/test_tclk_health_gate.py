@@ -140,3 +140,17 @@ async def test_delivery_gives_up_after_three_attempts(monkeypatch) -> None:
     scorer._connector = FlakyConnector(failures=5)
     assert await scorer._tclk_send("room", "frame") is False
     assert scorer._connector.posts == 3
+
+
+@pytest.mark.asyncio
+async def test_abandoned_accept_records_its_reason(monkeypatch) -> None:
+    """A decided offer that stops before the accept still closes its audit row."""
+    scorer = fresh()
+    seen: list[tuple] = []
+
+    async def fake_record(session, room, seq, contract, outcome, answer=""):
+        seen.append((room, seq, contract, outcome))
+
+    monkeypatch.setattr(scorer, "_tclk_record_outcome", fake_record)
+    await scorer._tclk_abandon(object(), "room-1", 42, "gate_unhealthy")
+    assert seen == [("room-1", 42, "", "gate_unhealthy")]

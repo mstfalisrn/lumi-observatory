@@ -3,6 +3,9 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+### Fixed
+- tclk audit funnel: an accepted offer that stopped before the accept (missing nonce, duplicate, unresolved offer id, unhealthy producer, failed post) left its row with an empty outcome, so "accepted" and "silently dropped" looked identical — and 12,033 legacy rows read that way. Every exit now records its reason (`no_nonce`, `duplicate`, `no_offer_id`, `gate_unhealthy`, `accept_failed`), an accept that is actually posted is marked `accepted` before the work starts, deliveries retry through the same sender as heartbeats, and `apps/tools/tclk_backfill_outcomes.py` marks the legacy rows `unrecorded`
+
 ## [1.4.0] - 2026-11-15
 ### Added
 - `apps/tools/flop_validator_preflight.py` + `docs/VALIDATOR.md`: the validator cohort without a GPU — host, port, genesis-pin, package-checksum, `da-peers.json` and account checks, each blocker named by exit code; admission stays external

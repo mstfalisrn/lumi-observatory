@@ -514,9 +514,11 @@ class AgentScorer:
             return
         nonce = str(frame.data.get("nonce", "") or "")
         if not nonce:
+            await self._tclk_abandon(session, room, seq, "no_nonce")
             return
         key = f"{frame.author}|{nonce}"
         if key in self._tclk_seen:
+            await self._tclk_abandon(session, room, seq, "duplicate")
             return
         self._tclk_seen.add(key)
         # The offer id — NOT its nonce — is what every later frame names. The
@@ -528,6 +530,7 @@ class AgentScorer:
             offer_ref = f"0x{offer_ref}"
         if not offer_ref:
             log.warning("tclk offer without id, cannot name a contract: seq=%s", seq)
+            await self._tclk_abandon(session, room, seq, "no_offer_id")
             return
         # Name the offer id on our own audit row. The row is written before the
         # accept exists and an offer frame carries no `ref`, so without this the
@@ -566,6 +569,7 @@ class AgentScorer:
         if not await self._tclk_producer_healthy():
             log.info("tclk accept skipped: producer not healthy offering=%s", offer_ref[:18])
             self._tclk_active.pop(contract, None)
+            await self._tclk_abandon(session, room, seq, "gate_unhealthy")
             return
         try:
             await self._connector.signed_post(
@@ -580,6 +584,9 @@ class AgentScorer:
             )
             self._tclk_accept_times.append(time.time())
             log.info("tclk agent ACCEPT posted ref=%s amount=%s %s", offer_ref, frame.amount, frame.asset)
+            # Mark the row as acted-on the moment the accept is public: from here the
+            # work is in flight, so an empty outcome can only mean "never accepted".
+            await self._tclk_record_outcome(session, room, seq, contract, "accepted")
             # Protocol step right after accepting: a heartbeat in the derived
             # deal room. It creates the room, tells the payer we are live, and is
             # where the deliverable and the reveal have to land.
@@ -627,13 +634,11 @@ class AgentScorer:
                 answer = await self._tclk_produce(frame)
             if answer is not None:
                 self._tclk_active[contract]["answer"] = answer
-                try:
-                    await self._connector.signed_post(room_key, build_delivery(contract=contract, body=answer))
+                if await self._tclk_send(room_key, build_delivery(contract=contract, body=answer)):
                     self._tclk_delivered.add(contract)
                     log.info("tclk delivery posted contract=%s answer=%s", contract[:18], answer[:90])
                     outcome = "delivered"
-                except Exception as e:
-                    log.warning("tclk delivery failed: %s", type(e).__name__)
+                else:
                     outcome = "error"
             else:
                 log.info("tclk brief unsolved (no guess shipped) contract=%s", contract[:18])
@@ -653,6 +658,7 @@ class AgentScorer:
         except Exception as e:
             log.warning("tclk accept post failed: %s", type(e).__name__)
             self._tclk_active.pop(contract, None)
+            await self._tclk_abandon(session, room, seq, "accept_failed")
 
     async def _tclk_job_index(self) -> dict[str, str]:
         """`job id -> brief` read from the venue's task room, cached for 20 s.
@@ -1047,6 +1053,18 @@ class AgentScorer:
             await session.flush()
         except Exception as e:
             log.debug("tclk outcome persist skipped: %s", type(e).__name__)
+
+    async def _tclk_abandon(self, session, room: str, seq: int, reason: str) -> None:
+        """Close an accepted offer's audit row that never became an accept.
+
+        The audit row is written when the decision is made, so a later return —
+        a missing nonce, a duplicate, an unhealthy producer, a failed post —
+        used to leave the row with no outcome at all. That made the funnel read
+        as if the work had been accepted and silently dropped. Every exit now
+        records its own reason, so `outcome IS NULL` means what it says: the
+        decision was never acted on. Never raises.
+        """
+        await self._tclk_record_outcome(session, room, seq, "", reason)
 
     async def _tclk_already_delivered(self, session, contract: str) -> bool:
         """Did a deliverable for this contract already go to the deal room?
