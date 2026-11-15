@@ -154,3 +154,46 @@ async def test_abandoned_accept_records_its_reason(monkeypatch) -> None:
     monkeypatch.setattr(scorer, "_tclk_record_outcome", fake_record)
     await scorer._tclk_abandon(object(), "room-1", 42, "gate_unhealthy")
     assert seen == [("room-1", 42, "", "gate_unhealthy")]
+
+
+class ReasoningProvider:
+    """Empty at four tokens, useful once the budget can hold the prefix."""
+
+    name = "openai_compatible"
+
+    def __init__(self) -> None:
+        self.budgets: list[int] = []
+
+    async def chat(self, messages, **kw):
+        budget = kw.get("max_tokens", 0)
+        self.budgets.append(budget)
+
+        class R:
+            finish_reason = "length" if budget < 16 else "stop"
+            text = "" if budget < 16 else "ok"
+
+        return R()
+
+
+@pytest.mark.asyncio
+async def test_reasoning_model_is_not_called_unhealthy(monkeypatch) -> None:
+    provider = ReasoningProvider()
+    monkeypatch.setattr(llm_mod, "build_provider", lambda *a, **k: provider)
+    assert await fresh()._tclk_producer_healthy() is True
+    assert provider.budgets[0] >= 16
+
+
+@pytest.mark.asyncio
+async def test_empty_reply_is_unhealthy(monkeypatch) -> None:
+    class AlwaysEmpty:
+        name = "openai_compatible"
+
+        async def chat(self, messages, **kw):
+            class R:
+                text = ""
+                finish_reason = "stop"
+
+            return R()
+
+    monkeypatch.setattr(llm_mod, "build_provider", lambda *a, **k: AlwaysEmpty())
+    assert await fresh()._tclk_producer_healthy() is False

@@ -732,15 +732,24 @@ class AgentScorer:
             if getattr(provider, "name", "") == "mock":
                 self._tclk_health = False
             else:
-                res = await asyncio.wait_for(
-                    provider.chat(
-                        [LLMMessage("user", "Reply with the single word: ok")],
-                        max_tokens=4,
-                        purpose="tclk-health",
-                    ),
-                    20.0,
-                )
-                self._tclk_health = bool((getattr(res, "text", "") or "").strip())
+                # A reasoning model spends the first tokens before printing anything:
+                # at four tokens the reply is empty with finish_reason="length", which
+                # is not a dead provider. Ask for enough room, and retry once when the
+                # budget was still the limiter, so the gate measures the provider.
+                text = ""
+                for budget in (64, 256):
+                    res = await asyncio.wait_for(
+                        provider.chat(
+                            [LLMMessage("user", "Reply with the single word: ok")],
+                            max_tokens=budget,
+                            purpose="tclk-health",
+                        ),
+                        20.0,
+                    )
+                    text = (getattr(res, "text", "") or "").strip()
+                    if text or getattr(res, "finish_reason", "") != "length":
+                        break
+                self._tclk_health = bool(text)
         except Exception as e:
             log.warning("tclk producer health check failed: %s", type(e).__name__)
             self._tclk_health = False
