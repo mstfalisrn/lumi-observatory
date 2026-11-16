@@ -3,6 +3,10 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-16
+### Added
+- `apps/tools/flop_scoreboard.py`: our own testnet numbers from the ledger we control — spend, receipts, distinct active days and the 3:1 implied liquid amount — because FLOP publishes no per-agent rank yet and an empty ledger must read as "no spend", never as zero credit
+
 ### Fixed
 - tclk producer gate: the health probe asked for four tokens, and a reasoning model spends them before printing anything — an empty reply with `finish_reason="length"` read as a dead provider, so every offer was refused as `gate_unhealthy`. The probe now asks for 64 tokens and retries once at 256 only when the budget was the limiter, and an empty reply that genuinely finished still counts as unhealthy
 - tclk audit funnel: an accepted offer that stopped before the accept (missing nonce, duplicate, unresolved offer id, unhealthy producer, failed post) left its row with an empty outcome, so "accepted" and "silently dropped" looked identical — and 12,033 legacy rows read that way. Every exit now records its reason (`no_nonce`, `duplicate`, `no_offer_id`, `gate_unhealthy`, `accept_failed`), an accept that is actually posted is marked `accepted` before the work starts, deliveries retry through the same sender as heartbeats, and `apps/tools/tclk_backfill_outcomes.py` marks the legacy rows `unrecorded`
