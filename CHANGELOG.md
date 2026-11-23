@@ -3,6 +3,10 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-23
+### Added
+- `flop_ready` reports the gateway allowance lifetime (`expires_at`, `expires_in_minutes`, `expiring_soon` under two hours): the public wallet credential lives at most 24 hours and re-enrollment cannot revive an expired one, so remaining lifetime is readiness
+
 ## [1.5.0] - 2026-11-16
 ### Added
 - `apps/tools/flop_scoreboard.py`: our own testnet numbers from the ledger we control — spend, receipts, distinct active days and the 3:1 implied liquid amount — because FLOP publishes no per-agent rank yet and an empty ledger must read as "no spend", never as zero credit

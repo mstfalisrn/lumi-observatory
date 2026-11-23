@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 _TOOLS = Path(__file__).resolve().parent
@@ -76,7 +77,18 @@ def readiness(did: str = DEFAULT_DID, rpc_url: str = rail.DEVNET_RPC, probe: boo
         return report
 
     st = gateway.status()
+    # The public wallet allowance lives at most 24 hours and re-enrollment cannot
+    # revive an expired one, so the remaining lifetime is part of readiness, not a
+    # detail: a lane with quota but two minutes left is about to stop being ready.
+    expires_at_ms = st.get("expires_at")
+    minutes_left = None
+    if isinstance(expires_at_ms, (int, float)) and expires_at_ms > 0:
+        minutes_left = max(0, int((expires_at_ms / 1000 - time.time()) // 60))
     report["gateway"] = {k: st.get(k) for k in ("ok", "credential", "remaining_quota", "model_allowlist", "reason")}
+    report["gateway"]["expires_at"] = expires_at_ms
+    report["gateway"]["expires_in_minutes"] = minutes_left
+    if minutes_left is not None and minutes_left < 120:
+        report["gateway"]["expiring_soon"] = True
     if not st.get("ok"):
         report["blocker"] = st.get("reason", "gateway_error")
         report["action"] = "re-enrol the devnet key: python apps/tools/flop_enroll.py"
@@ -137,7 +149,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"account      {chain.get('ss58', '-')}")
         print(f"balance      {chain.get('balance', '-')} FLOP")
         print(
-            f"gateway      {report.get('gateway', {}).get('ok')} quota={report.get('gateway', {}).get('remaining_quota')}"
+            f"gateway      {report.get('gateway', {}).get('ok')} quota={report.get('gateway', {}).get('remaining_quota')} "
+            f"kalan_sure={report.get('gateway', {}).get('expires_in_minutes')}dk"
         )
         print(f"probe        {report.get('probe', {}).get('ok')} reason={report.get('probe', {}).get('reason', '-')}")
         print(f"ready        {report['ready']}")
