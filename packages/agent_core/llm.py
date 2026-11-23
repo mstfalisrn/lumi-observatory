@@ -227,19 +227,28 @@ class FallbackProvider(LLMProvider):
 
     name = "fallback"
 
-    def __init__(self, primary: LLMProvider, secondary: LLMProvider) -> None:
+    def __init__(self, primary: LLMProvider, secondary: LLMProvider, cooldown: float = 300.0) -> None:
         self.primary = primary
         self.secondary = secondary
         self.model = getattr(primary, "model", "")
+        self.cooldown = cooldown
+        self._primary_down_until = 0.0
 
     async def chat(self, messages, tools=None, **kw) -> LLMResult:
+        # An expired or exhausted allowance fails every call; retrying it on each turn
+        # would add latency and log noise to work the fallback can do. Back off for a
+        # few minutes after a failure instead.
+        if time.monotonic() < self._primary_down_until:
+            return await self.secondary.chat(messages, tools=tools, **kw)
         try:
             result = await self.primary.chat(messages, tools=tools, **kw)
             if (getattr(result, "text", "") or "").strip() or getattr(result, "tool_calls", None):
                 return result
             log.warning("primary provider returned no text (%s), falling back", self.primary.name)
+            self._primary_down_until = time.monotonic() + self.cooldown
         except Exception as exc:
             log.warning("primary provider failed (%s: %s), falling back", self.primary.name, type(exc).__name__)
+            self._primary_down_until = time.monotonic() + self.cooldown
         return await self.secondary.chat(messages, tools=tools, **kw)
 
     async def check(self) -> bool:

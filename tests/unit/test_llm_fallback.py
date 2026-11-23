@@ -88,3 +88,13 @@ def test_gateway_provider_is_built_when_enabled(monkeypatch) -> None:
     assert provider is not None
     assert provider.name == "flop_gateway"
     assert provider.base_url == "https://api.flop.network"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_primary_is_skipped_while_cooling_down() -> None:
+    primary, secondary = Dead(), Ok()
+    provider = FallbackProvider(primary, secondary, cooldown=300)
+    await provider.chat([LLMMessage("user", "one")])
+    await provider.chat([LLMMessage("user", "two")])
+    assert primary.calls == 1
+    assert secondary.calls == 2

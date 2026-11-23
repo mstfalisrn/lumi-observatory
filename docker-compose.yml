@@ -212,7 +212,6 @@ services:
       - ${TECHNOCORE_KEY_HOST_PATH:-./secrets/did.ed25519}:/run/secrets/technocore/did.ed25519:ro
       # Gateway bearer written by apps/tools/flop_enroll.py; read-only, and a missing
       # or empty file simply leaves the FLOP provider disabled.
-      - ${FLOP_GATEWAY_KEY_HOST_PATH:-/root/secrets/lumi-observatory/flop-gateway.key}:/run/secrets/flop/gateway.key:ro
     environment:
       APP_ENV: ${APP_ENV:-production}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-lumi}:${POSTGRES_PASSWORD}@lumi-postgres:5432/${POSTGRES_DB:-lumi}
@@ -288,6 +287,7 @@ services:
     volumes:
       # Technocore DID key (host) → read-only into container; must be readable via GID 10001 on host (0640 root:10001)
       - ${TECHNOCORE_KEY_HOST_PATH:-./secrets/did.ed25519}:/run/secrets/technocore/did.ed25519:ro
+      - ${FLOP_GATEWAY_KEY_HOST_PATH:-/root/secrets/lumi-observatory/flop-gateway.key}:/run/secrets/flop/gateway.key:ro
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     pids_limit: 64
@@ -337,7 +337,7 @@ services:
       LUMI_SERVICE: lumi-scheduler
       # Prefer FLOP's gateway for LUMI's own work so testnet spend earns agent vouchers;
       # falls back to the configured provider when the allowance refuses.
-      FLOP_GATEWAY_LLM_ENABLED: ${FLOP_GATEWAY_LLM_ENABLED:-true}
+      FLOP_GATEWAY_LLM_ENABLED: ${FLOP_GATEWAY_LLM_ENABLED:-false}
       FLOP_GATEWAY_KEY_FILE: /run/secrets/flop/gateway.key
       FLOP_GATEWAY_BASE: ${FLOP_GATEWAY_BASE:-https://api.flop.network}
       EVALUATOR_LLM_ENABLED: ${EVALUATOR_LLM_ENABLED:-true}

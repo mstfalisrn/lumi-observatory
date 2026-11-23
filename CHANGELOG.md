@@ -3,6 +3,10 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+### Fixed
+- A failed FLOP gateway is skipped for a few minutes instead of being retried on every turn, so an expired allowance costs one warning and one attempt, not every delivery
+- The FLOP provider stays off until a validated credential exists (`FLOP_GATEWAY_LLM_ENABLED` defaults to false): the old devnet bearer is expired, and a dead primary would otherwise front every call
+
 ## [1.7.0] - 2026-11-23
 ### Added
 - LUMI can now do its own work through FLOP's gateway: `FLOP_GATEWAY_LLM_ENABLED` makes the gateway the preferred provider, so testnet spend comes from real tasks and earns agent vouchers; a `FallbackProvider` keeps deliveries flowing when the allowance is exhausted, expired or refused
