@@ -3,6 +3,11 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-23
+### Added
+- `apps/tools/flop_testnet_bootstrap.py`: the agent lane as the launch email defines it — discover the published testnet endpoints and genesis hash from `flop.finance/testnet`, claim the daily faucet grant for our SS58, spend it on inference, and ledger both. One testnet FLOP spent is one agent voucher; unspent faucet tokens earn nothing, so the tick converts instead of holding
+- Endpoint discovery fails with the missing field names rather than inventing a URL, and claim/spend try the documented path shapes before reporting a refusal
+
 ## [1.5.1] - 2026-11-23
 ### Added
 - `flop_ready` reports the gateway allowance lifetime (`expires_at`, `expires_in_minutes`, `expiring_soon` under two hours): the public wallet credential lives at most 24 hours and re-enrollment cannot revive an expired one, so remaining lifetime is readiness
