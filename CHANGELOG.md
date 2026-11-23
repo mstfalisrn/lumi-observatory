@@ -3,6 +3,11 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-23
+### Added
+- LUMI can now do its own work through FLOP's gateway: `FLOP_GATEWAY_LLM_ENABLED` makes the gateway the preferred provider, so testnet spend comes from real tasks and earns agent vouchers; a `FallbackProvider` keeps deliveries flowing when the allowance is exhausted, expired or refused
+- The gateway model is resolved from the credential's own `model_allowlist` instead of a guessed name, and the bearer is read from a read-only mount (missing or empty means the provider stays off)
+
 ## [1.6.0] - 2026-11-23
 ### Added
 - `apps/tools/flop_testnet_bootstrap.py`: the agent lane as the launch email defines it — discover the published testnet endpoints and genesis hash from `flop.finance/testnet`, claim the daily faucet grant for our SS58, spend it on inference, and ledger both. One testnet FLOP spent is one agent voucher; unspent faucet tokens earn nothing, so the tick converts instead of holding

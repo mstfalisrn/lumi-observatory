@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import abc
 import json
+import logging
+import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import httpx
 
 from observability.config import settings
 
+log = logging.getLogger(__name__)
+
 _DEFAULT_LLM_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
 
@@ -82,8 +86,7 @@ class LLMProvider(abc.ABC):
     name: str = "base"
 
     @abc.abstractmethod
-    async def chat(self, messages: list[LLMMessage], tools: list[dict] | None = None, **kw) -> LLMResult:
-        ...
+    async def chat(self, messages: list[LLMMessage], tools: list[dict] | None = None, **kw) -> LLMResult: ...
 
     @abc.abstractmethod
     async def check(self) -> bool:
@@ -167,10 +170,11 @@ class OpenAICompatibleProvider(LLMProvider):
 def build_provider(provider: str | None = None) -> LLMProvider:
     p = (provider or settings.LLM_PROVIDER or "mock").lower()
     if p == "openai_compatible" or p == "openai":
-        return OpenAICompatibleProvider(
-            settings.LLM_BASE_URL, settings.LLM_MODEL, settings.LLM_API_KEY
-        )
-    return MockProvider()
+        base: LLMProvider = OpenAICompatibleProvider(settings.LLM_BASE_URL, settings.LLM_MODEL, settings.LLM_API_KEY)
+    else:
+        base = MockProvider()
+    flop = build_flop_gateway_provider()
+    return FallbackProvider(flop, base) if flop is not None else base
 
 
 # ---------------------------------------------------------------------------
@@ -178,8 +182,7 @@ def build_provider(provider: str | None = None) -> LLMProvider:
 # ---------------------------------------------------------------------------
 class EmbeddingProvider(abc.ABC):
     @abc.abstractmethod
-    async def embed(self, text: str) -> list[float]:
-        ...
+    async def embed(self, text: str) -> list[float]: ...
 
 
 class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
@@ -212,3 +215,95 @@ def build_embedding_provider() -> EmbeddingProvider | None:
         return OpenAICompatibleEmbeddingProvider(settings.LLM_BASE_URL, model, settings.LLM_API_KEY)
     except Exception:
         return None
+
+
+class FallbackProvider(LLMProvider):
+    """Prefer the first provider, keep working when it refuses.
+
+    A testnet allowance that is exhausted, expired or rate-limited must not take the
+    agent's work down with it: the fallback answers and the failure is logged by class
+    only, so a broken credential cannot leak into a delivered task.
+    """
+
+    name = "fallback"
+
+    def __init__(self, primary: LLMProvider, secondary: LLMProvider) -> None:
+        self.primary = primary
+        self.secondary = secondary
+        self.model = getattr(primary, "model", "")
+
+    async def chat(self, messages, tools=None, **kw) -> LLMResult:
+        try:
+            result = await self.primary.chat(messages, tools=tools, **kw)
+            if (getattr(result, "text", "") or "").strip() or getattr(result, "tool_calls", None):
+                return result
+            log.warning("primary provider returned no text (%s), falling back", self.primary.name)
+        except Exception as exc:
+            log.warning("primary provider failed (%s: %s), falling back", self.primary.name, type(exc).__name__)
+        return await self.secondary.chat(messages, tools=tools, **kw)
+
+    async def check(self) -> bool:
+        return await self.primary.check() or await self.secondary.check()
+
+
+def _flop_gateway_key() -> str:
+    """The gateway bearer, from the environment or the credential file.
+
+    Read here rather than imported from the earning tools: the scheduler image does not
+    ship apps/earn, and a missing credential must mean "not enabled", not a crash.
+    """
+    inline = os.environ.get("FLOP_GATEWAY_KEY", "").strip()
+    if inline:
+        return inline
+    path = Path(os.environ.get("FLOP_GATEWAY_KEY_FILE", "/root/secrets/lumi-observatory/flop-gateway.key"))
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return ""
+
+
+class FlopGatewayProvider(OpenAICompatibleProvider):
+    """FLOP's gateway, with the model taken from the credential's own allowlist.
+
+    Guessing a model name is how a working credential looks broken: a model outside the
+    allowlist is refused while the allowance is fine. So an unset model is resolved once
+    from `/v1/keys/me` and cached, and only then does the call go out.
+    """
+
+    name = "flop_gateway"
+
+    async def _resolve_model(self) -> str:
+        explicit = (getattr(settings, "FLOP_GATEWAY_LLM_MODEL", "") or os.environ.get("FLOP_GATEWAY_MODEL", "")).strip()
+        if explicit:
+            return explicit
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(f"{self.base_url}/v1/keys/me", headers=_llm_headers(self.api_key))
+            if resp.status_code == 200:
+                allow = resp.json().get("model_allowlist") or []
+                if allow:
+                    return str(allow[0])
+        except Exception as exc:
+            log.warning("gateway model lookup failed (%s)", type(exc).__name__)
+        return "qwen/qwen2.5-0.5b-instruct"
+
+    async def chat(self, messages, tools=None, **kw) -> LLMResult:
+        if not self.model:
+            self.model = await self._resolve_model()
+        return await super().chat(messages, tools=tools, **kw)
+
+
+def build_flop_gateway_provider() -> LLMProvider | None:
+    """FLOP's gateway as a provider, when it is enabled and a credential exists."""
+    if not getattr(settings, "FLOP_GATEWAY_LLM_ENABLED", False):
+        return None
+    key = _flop_gateway_key()
+    if not key:
+        return None
+    base = (
+        getattr(settings, "FLOP_GATEWAY_LLM_BASE", "")
+        or os.environ.get("FLOP_GATEWAY_BASE", "")
+        or "https://api.flop.network"
+    ).rstrip("/")
+    model = getattr(settings, "FLOP_GATEWAY_LLM_MODEL", "") or os.environ.get("FLOP_GATEWAY_MODEL", "")
+    return FlopGatewayProvider(base, model, key)

@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "mock"
     LLM_BASE_URL: str = ""
     LLM_MODEL: str = ""
+    # Spend testnet FLOP through LUMI's own work: when enabled, the producer prefers
+    # FLOP's OpenAI-compatible gateway (billed to the testnet allowance, earning agent
+    # vouchers) and falls back to the configured provider if the gateway refuses.
+    FLOP_GATEWAY_LLM_ENABLED: bool = False
+    FLOP_GATEWAY_LLM_MODEL: str = ""  # empty -> first model in the credential's allowlist
+    FLOP_GATEWAY_LLM_BASE: str = ""  # empty -> FLOP_GATEWAY_BASE or api.flop.network
     LLM_API_KEY: str = ""
     LLM_SESSION_ID: str = ""  # sent as x-opencode-session (required by OpenCode Go free tier)
     LLM_USER_AGENT: str = ""  # override; default browser-like UA (Cloudflare-protected providers)
