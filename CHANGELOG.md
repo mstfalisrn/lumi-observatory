@@ -3,6 +3,12 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-11-24
+### Fixed
+- Testnet endpoint discovery reads the operator docs as well as the marketing page: on launch day the docs carried the live RPC (`testnet.flop.network`), chain id and genesis while `flop.finance/testnet` still said "draft", so discovery kept reporting "unpublished"
+- Claiming now compares the faucet's own `/chain` genesis with the published Testnet genesis and refuses on mismatch — the faucet still reports Devnet, so no request is sent at all
+- Discovered API links are reduced to their origin, so a page link cannot become the faucet base URL
+
 ### Fixed
 - A failed FLOP gateway is skipped for a few minutes instead of being retried on every turn, so an expired allowance costs one warning and one attempt, not every delivery
 - The FLOP provider stays off until a validated credential exists (`FLOP_GATEWAY_LLM_ENABLED` defaults to false): the old devnet bearer is expired, and a dead primary would otherwise front every call

@@ -25,11 +25,15 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 SITE = "https://flop.finance/testnet/"
+DOCS = "https://docs.flop.network/networks/testnet"
+AGENT_DOCS = "https://docs.flop.network/docs/agent-onboarding"
 LEDGER = Path(os.environ.get("FLOP_LEDGER", "/var/lib/lumi-earn/flop-compute.jsonl"))
 SS58 = os.environ.get("FLOP_ACCOUNT_SS58", "")
 UA = "lumi-bootstrap/1.0"
@@ -51,27 +55,55 @@ def fetch(url: str, *, payload: dict | None = None, timeout: int = 30) -> tuple[
         return 0, f"{type(exc).__name__}: {exc}"
 
 
-def discover() -> dict:
-    """Read the published endpoints and genesis hash off the testnet page."""
-    code, html = fetch(SITE)
-    if code != 200:
-        return {"ok": False, "reason": "site_unreachable", "http": code}
+def _origin(url: str) -> str:
+    """Scheme + host only: discovered links point at a page, the API lives at the root."""
+    if not url:
+        return ""
+    parts = urlparse(url)
+    return f"{parts.scheme}://{parts.netloc}" if parts.scheme and parts.netloc else url
+
+
+def _plain(html: str) -> str:
     text = re.sub(r"<(script|style)[^>]*>[\s\S]*?</\1>", " ", html, flags=re.I)
     text = re.sub(r"<[^>]+>", " ", text)
-    text = re.sub(r"\s+", " ", text)
+    return re.sub(r"\s+", " ", text)
+
+
+def discover() -> dict:
+    """Read the published endpoints and genesis hash.
+
+    Two surfaces publish them and they do not move together: the marketing page is the
+    announcement, the operator docs carry the values first (that is where the live network
+    named its RPC and genesis while flop.finance still said draft). Both are read, docs win.
+    """
+    site_code, site_html = fetch(SITE)
+    docs_code, docs_html = fetch(DOCS)
+    _agent_code, agent_html = fetch(AGENT_DOCS)
+    text = " ".join(_plain(h) for h in (site_html, docs_html, agent_html) if h)
+    if site_code != 200 and docs_code != 200:
+        return {"ok": False, "reason": "sites_unreachable", "http": site_code}
 
     urls = set(re.findall(r"https?://[a-z0-9.\-]+\.[a-z]{2,}(?:/[^\s\"'<>)]*)?", text, re.I))
-    rpc = next((u for u in urls if "rpc" in u and "flop" in u), "")
-    faucet = next((u for u in urls if "faucet" in u), "")
-    gateway = next((u for u in urls if "api." in u and "flop" in u), "")
+    for h in (site_html, docs_html, agent_html):
+        for href in re.findall(r'href="(https?://[^"]+)"', h or "", re.I):
+            urls.add(href.split("#")[0].rstrip("/"))
+    rpc = next(
+        (u for u in urls if (urlparse(u).hostname or "") in {"testnet.flop.network", "rpc.testnet.flop.network"}),
+        "",
+    )
+    rpc = rpc or next((u for u in urls if "rpc" in u and "flop" in u), "")
+    faucet_u = next((u for u in urls if "faucet" in u), "")
+    gateway_u = next((u for u in urls if "api." in u and "flop" in u), "")
+    faucet = _origin(faucet_u)
+    gateway = _origin(gateway_u)
     genesis = ""
-    m = re.search(r"0x[0-9a-f]{64}", text, re.I)
+    m = re.search(r"genesis block hash\s*(0x[0-9a-f]{64})", text, re.I) or re.search(r"0x[0-9a-f]{64}", text, re.I)
     if m:
-        genesis = m.group(0)
-    block = ""
-    b = re.search(r"first block[^0-9]{0,40}(\d{1,12})", text, re.I)
-    if b:
-        block = b.group(1)
+        genesis = m.group(1) if m.groups() else m.group(0)
+    chain_id = ""
+    c = re.search(r"chain id is\s*([a-z0-9_]+)", text, re.I)
+    if c:
+        chain_id = c.group(1)
 
     missing = [k for k, v in (("rpc", rpc), ("faucet", faucet), ("gateway", gateway)) if not v]
     return {
@@ -81,7 +113,7 @@ def discover() -> dict:
         "faucet": faucet,
         "gateway": gateway,
         "genesis": genesis,
-        "first_block": block,
+        "chain_id": chain_id,
         "published_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
@@ -100,6 +132,19 @@ def chain_ready(rpc: str) -> dict:
     except ValueError:
         return {"ok": False, "reason": "rpc_unparsable"}
     return {"ok": bool(genesis), "genesis": genesis}
+
+
+def faucet_chain(faucet: str) -> dict:
+    """The faucet's own chain identity — never request funds before comparing it."""
+    code, body = fetch(f"{faucet.rstrip('/')}/chain")
+    if code != 200:
+        return {"ok": False, "http": code}
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return {"ok": False, "http": code}
+    genesis = data.get("genesisHash") or data.get("genesis_hash") or data.get("genesis") or ""
+    return {"ok": bool(genesis), "genesis": genesis, "chain": data.get("chain") or data.get("name") or ""}
 
 
 def claim(faucet: str, address: str) -> dict:
@@ -182,6 +227,20 @@ def main() -> int:
         if not SS58:
             print("FLOP_ACCOUNT_SS58 is not set", file=sys.stderr)
             return 2
+        chain = faucet_chain(found["faucet"])
+        if found.get("genesis") and chain.get("genesis") and chain["genesis"] != found["genesis"]:
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "reason": "faucet_wrong_chain",
+                        "faucet_genesis": chain["genesis"],
+                        "testnet_genesis": found["genesis"],
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 7
         res = claim(found["faucet"], SS58)
         stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         amount = res.get("amount") or 0
