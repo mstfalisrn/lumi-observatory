@@ -156,14 +156,18 @@ def claim(faucet: str, address: str) -> dict:
     """
     base = faucet.rstrip("/")
     last: dict = {"http": 0}
-    for path in ("/fund", "/api/fund", "/v1/fund", "/faucet/fund"):
-        code, body = fetch(f"{base}{path}", payload={"address": address})
+    for path in ("/v1/testnet/agent-claims", "/fund", "/api/fund", "/v1/fund", "/faucet/fund"):
+        code, body = fetch(f"{base}{path}", payload={"address": address, "client": "lumi-bootstrap/1.0"})
         try:
             parsed = json.loads(body)
         except ValueError:
             parsed = {"raw": body[:200]}
         last = {"http": code, "path": path, **parsed}
         if code != 404:
+            # The testnet agent lane answers 200 with success:false while the signed
+            # claim format is unpublished; that is a held gate, not a transport error.
+            if parsed.get("reason") == "claim_signature_invalid":
+                last["reason"] = "claim_needs_signature"
             return last
     return last
 
@@ -190,6 +194,10 @@ def spend(gateway: str, amount: float) -> dict:
             parsed = {"raw": body[:300]}
         last = {"http": code, "path": path, **parsed}
         if code != 404:
+            # The testnet agent lane answers 200 with success:false while the signed
+            # claim format is unpublished; that is a held gate, not a transport error.
+            if parsed.get("reason") == "claim_signature_invalid":
+                last["reason"] = "claim_needs_signature"
             return last
     return last
 
@@ -219,8 +227,10 @@ def main() -> int:
             return 6
         print(json.dumps(chain_ready(found["rpc"]), indent=2))
         return 0
-    if not found.get("ok"):
-        print(json.dumps({"ok": False, "reason": "endpoints_unpublished", "missing": found.get("missing", [])}))
+    needed = ("faucet",) if args.claim else ("gateway",)
+    absent = [k for k in needed if not found.get(k)]
+    if absent:
+        print(json.dumps({"ok": False, "reason": "endpoints_unpublished", "missing": absent}))
         return 6
 
     if args.claim:
@@ -252,6 +262,7 @@ def main() -> int:
                     "ok": ok,
                     "http": res.get("http"),
                     "amount": amount,
+                    "reason": res.get("reason"),
                     "tx": res.get("txHash") or res.get("tx"),
                     "error": res.get("error"),
                 },

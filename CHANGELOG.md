@@ -3,6 +3,12 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-11-25
+### Fixed
+- Claiming now talks to the published Testnet agent lane (`POST /v1/testnet/agent-claims`) instead of the Devnet `/fund` path, and reports the faucet's own refusal as `claim_needs_signature` rather than a bare HTTP error
+### Changed
+- The watcher tracks faucet funding state and the agent grant size alongside the chain identity, so "faucet is on Testnet but funding is held" is visible instead of being mistaken for readiness
+
 ## [1.7.2] - 2026-11-24
 ### Fixed
 - Testnet endpoint discovery reads the operator docs as well as the marketing page: on launch day the docs carried the live RPC (`testnet.flop.network`), chain id and genesis while `flop.finance/testnet` still said "draft", so discovery kept reporting "unpublished"
