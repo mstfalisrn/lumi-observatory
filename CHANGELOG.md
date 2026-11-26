@@ -3,6 +3,13 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-26
+### Added
+- The Testnet agent claim is signed: the faucet verifies `flop-faucet-agent/v1|<genesis>|<address>|<nonce>` with the recipient key, and that format is now implemented (Ed25519, the same seed as the DID) instead of sending an unsigned request
+- The signed request (address, nonce, signature, genesis) is kept on disk before sending, so an `unknown` outcome is reconciled with the same nonce rather than a fresh one
+### Changed
+- Faucet refusals are reported by their own reason (`ip_cooldown`, `claim_needs_signature`), and the faucet is open again (grant 10 FLOP per account per rolling 24 h)
+
 ## [1.7.3] - 2026-11-25
 ### Fixed
 - Claiming now talks to the published Testnet agent lane (`POST /v1/testnet/agent-claims`) instead of the Devnet `/fund` path, and reports the faucet's own refusal as `claim_needs_signature` rather than a bare HTTP error

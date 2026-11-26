@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -147,6 +148,31 @@ def faucet_chain(faucet: str) -> dict:
     return {"ok": bool(genesis), "genesis": genesis, "chain": data.get("chain") or data.get("name") or ""}
 
 
+def signing_seed() -> bytes | None:
+    """The Ed25519 seed whose public key is our FLOP account (same key as the DID)."""
+    path = Path(os.environ.get("FLOP_SIGNING_KEY_FILE", "/root/secrets/lumi-observatory/did.ed25519"))
+    try:
+        seed = path.read_bytes()
+    except OSError:
+        return None
+    return seed[:32] if len(seed) >= 32 else None
+
+
+def claim_message(address: str, nonce: str, genesis: str) -> bytes:
+    """The exact text the faucet verifies: flop-faucet-agent/v1|<genesis>|<address>|<nonce>."""
+    return f"flop-faucet-agent/v1|{genesis}|{address}|{nonce}".encode()
+
+
+def sign_claim(address: str, nonce: str, genesis: str) -> str | None:
+    seed = signing_seed()
+    if not seed:
+        return None
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    sig = Ed25519PrivateKey.from_private_bytes(seed).sign(claim_message(address, nonce, genesis))
+    return "0x" + sig.hex()
+
+
 def claim(faucet: str, address: str) -> dict:
     """Ask the faucet for the daily grant; report the machine reason verbatim.
 
@@ -155,9 +181,25 @@ def claim(faucet: str, address: str) -> dict:
     a wrong path, not a refusal, and must not be reported as one.
     """
     base = faucet.rstrip("/")
+    nonce = str(int(time.time() * 1000))
+    # The testnet lane wants a signed D10 claim; the devnet path took a bare address.
+    # Sign when we can and let the faucet name the refusal otherwise.
+    genesis = discover().get("genesis", "")
+    payload = {"address": address, "client": "lumi-bootstrap/1.0"}
+    signature = sign_claim(address, nonce, genesis) if genesis else None
+    if signature:
+        payload.update({"nonce": nonce, "signature": signature})
+    if signature:
+        state = Path(os.environ.get("FLOP_CLAIM_STATE", "/var/lib/lumi-earn/claim-reconcile.json"))
+        try:
+            state.parent.mkdir(parents=True, exist_ok=True)
+            state.write_text(json.dumps({"nonce": nonce, "signature": signature, "address": address,
+                                         "genesis": genesis, "sent_at": datetime.now(UTC).isoformat()}))
+        except OSError:
+            pass
     last: dict = {"http": 0}
     for path in ("/v1/testnet/agent-claims", "/fund", "/api/fund", "/v1/fund", "/faucet/fund"):
-        code, body = fetch(f"{base}{path}", payload={"address": address, "client": "lumi-bootstrap/1.0"})
+        code, body = fetch(f"{base}{path}", payload=payload)
         try:
             parsed = json.loads(body)
         except ValueError:
