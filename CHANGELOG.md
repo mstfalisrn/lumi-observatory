@@ -3,6 +3,12 @@ Follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Versioning
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-11-27
+### Fixed
+- Discovery picks the Testnet inference gateway (`gateway.testnet.flop.network`) instead of the Devnet broker, which answered every Testnet request with an expired-allowance error
+### Changed
+- Spend attempts against a 402 are recorded as failed with the gateway's own reason, so a closed payment gate is visible in the ledger rather than silently skipped
+
 ## [1.8.0] - 2026-11-26
 ### Added
 - The Testnet agent claim is signed: the faucet verifies `flop-faucet-agent/v1|<genesis>|<address>|<nonce>` with the recipient key, and that format is now implemented (Ed25519, the same seed as the DID) instead of sending an unsigned request

@@ -94,7 +94,8 @@ def discover() -> dict:
     )
     rpc = rpc or next((u for u in urls if "rpc" in u and "flop" in u), "")
     faucet_u = next((u for u in urls if "faucet" in u), "")
-    gateway_u = next((u for u in urls if "api." in u and "flop" in u), "")
+    gateway_u = next((u for u in urls if "gateway." in u and "flop" in u), "")
+    gateway_u = gateway_u or next((u for u in urls if "api." in u and "flop" in u), "")
     faucet = _origin(faucet_u)
     gateway = _origin(gateway_u)
     genesis = ""
@@ -105,6 +106,10 @@ def discover() -> dict:
     c = re.search(r"chain id is\s*([a-z0-9_]+)", text, re.I)
     if c:
         chain_id = c.group(1)
+    # Testnet inference lives on its own gateway host; api.flop.network is the Devnet
+    # broker and answers an expired allowance no matter what we sign.
+    if chain_id == "flop_testnet":
+        gateway = "https://gateway.testnet.flop.network"
 
     missing = [k for k, v in (("rpc", rpc), ("faucet", faucet), ("gateway", gateway)) if not v]
     return {
@@ -193,8 +198,17 @@ def claim(faucet: str, address: str) -> dict:
         state = Path(os.environ.get("FLOP_CLAIM_STATE", "/var/lib/lumi-earn/claim-reconcile.json"))
         try:
             state.parent.mkdir(parents=True, exist_ok=True)
-            state.write_text(json.dumps({"nonce": nonce, "signature": signature, "address": address,
-                                         "genesis": genesis, "sent_at": datetime.now(UTC).isoformat()}))
+            state.write_text(
+                json.dumps(
+                    {
+                        "nonce": nonce,
+                        "signature": signature,
+                        "address": address,
+                        "genesis": genesis,
+                        "sent_at": datetime.now(UTC).isoformat(),
+                    }
+                )
+            )
         except OSError:
             pass
     last: dict = {"http": 0}
